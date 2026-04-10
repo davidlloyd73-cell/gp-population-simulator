@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harrow GP Population Health Simulator v2</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ── Reset & Variables ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f0f4f8; --card: #ffffff; --border: #e2e8f0;
+      --text: #1a202c; --muted: #718096; --accent: #2b6cb0;
+      --navy: #1a2a4a; --navy2: #243655;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+
+    /* ── Stats Bar ── */
+    #stats-bar {
+      background: linear-gradient(135deg, #1a2a4a 0%, #243655 100%);
+      color: #fff; padding: 10px 18px;
+      display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.35); position: sticky; top: 0; z-index: 100;
+    }
+    .stat { display: flex; flex-direction: column; min-width: 72px; }
+    .stat-lbl { font-size: 9px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.7px; }
+    .stat-val { font-size: 20px; font-weight: 800; line-height: 1.15; }
+    .stat.wide { flex:1; min-width:200px; }
+    .stat.wide .stat-val { font-size: 12px; line-height: 1.7; opacity: 0.9; }
+    #eth-bar { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; opacity:0.8; }
+    .eth-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:3px; }
+    #covid-badge { background:#e53e3e; color:#fff; padding:2px 9px; border-radius:12px; font-size:11px; font-weight:700; display:none; animation:pulse 1s infinite; }
+    #active-ints { font-size:10px; opacity:0.75; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .int-badge { background:rgba(255,255,255,0.15); border-radius:10px; padding:1px 7px; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.55} }
+
+    /* ── Layout ── */
+    #app { display:flex; flex-direction:column; gap:10px; padding:12px; }
+    .card { background:var(--card); border-radius:10px; padding:13px 15px; box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+    .card-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.7px; color:var(--muted); margin-bottom:10px; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .row3 { display:grid; grid-template-columns:280px 1fr 1fr; gap:10px; }
+    @media(max-width:1000px) { .row3{grid-template-columns:1fr 1fr} .row2{grid-template-columns:1fr} }
+    @media(max-width:700px)  { .row3{grid-template-columns:1fr} }
+
+    /* ── Buttons ── */
+    button { padding:6px 13px; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; transition:filter .15s; }
+    button:hover { filter:brightness(1.08); }
+    button:active { filter:brightness(0.92); }
+    .btn-blue   { background:#3182ce; color:#fff; }
+    .btn-green  { background:#38a169; color:#fff; }
+    .btn-orange { background:#dd6b20; color:#fff; }
+    .btn-red    { background:#e53e3e; color:#fff; }
+    .btn-gray   { background:#718096; color:#fff; }
+    .btn-sm     { padding:4px 10px; font-size:11px; }
+    .btn-auto-on { box-shadow:0 0 0 3px #68d391; }
+
+    /* ── Controls ── */
+    #ctrl-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .speed-wrap { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); }
+    input[type=range] { width:85px; cursor:pointer; }
+    .kbd { font-size:10px; color:#a0aec0; margin-left:6px; }
+    kbd { background:#f7fafc; border:1px solid #e2e8f0; border-radius:3px; padding:1px 5px; font-family:monospace; font-size:10px; }
+
+    /* ── About Panel ── */
+    #about-panel summary { cursor:pointer; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.7px; color:var(--muted); padding:2px 0; user-select:none; }
+    #about-panel summary:hover { color:var(--accent); }
+    .about-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-top:14px; }
+    @media(max-width:900px) { .about-grid { grid-template-columns:1fr 1fr; } }
+    @media(max-width:600px) { .about-grid { grid-template-columns:1fr; } }
+    .about-col h4 { font-size:11px; font-weight:700; color:var(--accent); margin-bottom:7px; text-transform:uppercase; letter-spacing:0.5px; }
+    .about-col p, .about-col li { font-size:12px; color:#4a5568; line-height:1.6; }
+    .about-col ul { padding-left:16px; }
+    .about-col li { margin-bottom:3px; }
+    .about-disclaimer { margin-top:14px; padding:10px 14px; background:#fff8f0; border-left:4px solid #dd6b20; border-radius:0 6px 6px 0; font-size:12px; color:#7b341e; line-height:1.6; }
+    .about-author { margin-top:10px; padding:10px 14px; background:#f0f7ff; border-left:4px solid #3182ce; border-radius:0 6px 6px 0; font-size:12px; color:#1a365d; line-height:1.6; }
+
+    /* ── Demographics Panel ── */
+    #demo-panel summary { cursor:pointer; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.7px; color:var(--muted); padding:2px 0; user-select:none; }
+    #demo-panel summary:hover { color:var(--accent); }
+    #demo-inner { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    @media(max-width:600px) { #demo-inner { grid-template-columns:1fr; } }
+    .slider-group { display:flex; flex-direction:column; gap:4px; }
+    .slider-row { display:flex; align-items:center; gap:8px; }
+    .slider-row label { min-width:160px; font-size:12px; color:var(--text); display:flex; align-items:center; gap:6px; }
+    .slider-row input[type=range] { flex:1; }
+    .slider-val { min-width:38px; text-align:right; font-weight:700; font-size:12px; color:var(--accent); }
+    .slider-sub { font-size:10px; color:var(--muted); margin-left:4px; }
+    .eth-swatch { display:inline-block; width:10px; height:10px; border-radius:50%; }
+    .computed-val { background:#f7fafc; border:1px solid var(--border); border-radius:5px; padding:4px 8px; font-size:12px; font-weight:700; color:var(--muted); }
+    #white-pct-display { }
+    .demo-note { font-size:10px; color:var(--muted); font-style:italic; margin-top:6px; }
+
+    /* ── Interventions ── */
+    #int-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:7px; }
+    .int-card {
+      border:2px solid var(--border); border-radius:8px; padding:9px 11px;
+      cursor:pointer; transition:all .15s; background:#fafafa; user-select:none;
+    }
+    .int-card:hover { border-color:#a0aec0; background:#f7fafc; }
+    .int-card.on { border-color:var(--accent-color,#3182ce); background:var(--accent-bg,#ebf8ff); }
+    .int-card-icon { font-size:18px; margin-bottom:3px; }
+    .int-card-name { font-size:12px; font-weight:700; color:var(--text); }
+    .int-card-desc { font-size:10px; color:var(--muted); margin-top:2px; line-height:1.4; }
+    .int-card-status { font-size:10px; font-weight:700; margin-top:4px; }
+    .int-card.on .int-card-status { color:var(--accent-color,#3182ce); }
+    .int-card:not(.on) .int-card-status { color:#a0aec0; }
+
+    /* ── Scenario Capture ── */
+    #scenario-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    #scenario-name { padding:5px 9px; border:1px solid var(--border); border-radius:6px; font-size:12px; width:200px; }
+    #saved-list { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .saved-chip {
+      display:flex; align-items:center; gap:5px;
+      padding:3px 9px; border-radius:12px; font-size:11px; font-weight:600;
+      border:2px solid; cursor:default;
+    }
+    .saved-chip-del { cursor:pointer; font-size:13px; opacity:0.6; line-height:1; border:none; background:none; padding:0 0 0 3px; }
+    .saved-chip-del:hover { opacity:1; }
+
+    /* ── Charts ── */
+    .chart-wrap { position:relative; }
+    canvas { display:block; }
+
+    /* ── Condition Tags ── */
+    .tag { display:inline-block; padding:1px 5px; border-radius:8px; font-size:10px; font-weight:700; margin:1px; }
+    .t-HTN{background:#fed7d7;color:#822727} .t-T2DM{background:#fefcbf;color:#744210}
+    .t-CAD{background:#fde8d8;color:#7b341e} .t-HF{background:#fce7f3;color:#97266d}
+    .t-AF{background:#e9d8fd;color:#553c9a}  .t-CKD{background:#bee3f8;color:#2c5282}
+    .t-COPD{background:#c6f6d5;color:#276749} .t-Asthma{background:#b2f5ea;color:#285e61}
+    .t-Depression{background:#e2e8f0;color:#2d3748} .t-Cancer{background:#fed7d7;color:#63171b}
+    .t-Osteoporosis{background:#feebc8;color:#7b341e} .t-Hypothyroidism{background:#ebf8ff;color:#1a365d}
+    .t-Stroke{background:#fff5f5;color:#742a2a;border:1px solid #fc8181}
+    .t-LongCOVID{background:#e6fffa;color:#1d4044} .t-Dementia{background:#f0e6ff;color:#44337a}
+    .t-def{background:#f7fafc;color:#4a5568}
+
+    /* ── Table ── */
+    #tbl-filters { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-bottom:9px; }
+    #tbl-filters input[type=text], #tbl-filters select, #tbl-filters input[type=number] {
+      padding:5px 8px; border:1px solid var(--border); border-radius:6px;
+      font-size:12px; background:#fafafa;
+    }
+    #tbl-filters input[type=text] { width:150px; }
+    #tbl-filters input[type=number] { width:58px; }
+    #tbl-wrap { overflow:auto; max-height:340px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    thead th {
+      background:#f7fafc; padding:6px 9px; text-align:left;
+      font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);
+      border-bottom:2px solid var(--border); position:sticky; top:0; cursor:pointer; white-space:nowrap; z-index:1;
+    }
+    thead th:hover { background:#edf2f7; }
+    tbody tr { border-bottom:1px solid #f7fafc; cursor:pointer; }
+    tbody tr:hover { background:#ebf8ff; }
+    tbody tr.dead-row { opacity:0.45; }
+    tbody td { padding:5px 9px; }
+    #tbl-meta { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:11px; color:var(--muted); }
+    #tbl-pages { display:flex; gap:6px; align-items:center; }
+    #tbl-running-notice { display:none; background:#fefcbf; color:#744210; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:600; text-align:center; }
+
+    /* ── Modal ── */
+    #modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.52); z-index:999; align-items:center; justify-content:center; }
+    #modal-bg.open { display:flex; }
+    #modal { background:#fff; border-radius:13px; padding:22px 24px; max-width:600px; width:93%; max-height:85vh; overflow-y:auto; position:relative; box-shadow:0 20px 60px rgba(0,0,0,0.28); }
+    #modal-x { position:absolute; top:12px; right:14px; background:#f7fafc; border:none; border-radius:50%; width:26px; height:26px; cursor:pointer; font-size:14px; color:#4a5568; display:flex; align-items:center; justify-content:center; }
+    #modal h2 { font-size:19px; margin-bottom:2px; }
+    .modal-sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+    .msec { margin-bottom:15px; }
+    .msec-t { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--muted); margin-bottom:6px; padding-bottom:3px; border-bottom:1px solid #f0f4f8; }
+    .vitals-g { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+    .vital { background:#f7fafc; border-radius:7px; padding:8px; text-align:center; }
+    .vital-v { font-size:18px; font-weight:800; }
+    .vital-l { font-size:9px; color:var(--muted); margin-top:1px; }
+    .qtrack { background:#e2e8f0; border-radius:99px; height:16px; margin-top:5px; overflow:hidden; }
+    .qfill  { height:100%; border-radius:99px; display:flex; align-items:center; padding-left:7px; font-size:10px; font-weight:800; color:#fff; }
+    .meds-list { display:flex; flex-direction:column; gap:3px; }
+    .med-r { background:#f7fafc; border-radius:5px; padding:5px 9px; font-size:11px; }
+    .evt-ul { list-style:none; }
+    .evt-li { display:flex; gap:8px; padding:4px 0; border-bottom:1px solid #f7fafc; font-size:11px; }
+    .evt-mo { font-size:9px; color:#a0aec0; min-width:62px; padding-top:1px; }
+    .none-m { color:#a0aec0; font-style:italic; font-size:11px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ STATS BAR ═══════════════════════ -->
+<div id="stats-bar">
+  <div class="stat"><span class="stat-lbl">List Size</span><span class="stat-val" id="s-size">–</span></div>
+  <div class="stat"><span class="stat-lbl">Mean Age</span><span class="stat-val" id="s-age">–</span></div>
+  <div class="stat"><span class="stat-lbl">Deaths/Yr</span><span class="stat-val" id="s-dyr">0</span></div>
+  <div class="stat"><span class="stat-lbl">Cumul. Deaths</span><span class="stat-val" id="s-dcum">0</span></div>
+  <div class="stat"><span class="stat-lbl">Mean QRISK</span><span class="stat-val" id="s-qr">–</span></div>
+  <div class="stat"><span class="stat-lbl">Month</span><span class="stat-val" id="s-mo" style="font-size:14px;padding-top:3px">–</span></div>
+  <span id="covid-badge">🦠 COVID WAVE</span>
+  <div class="stat wide">
+    <span class="stat-lbl">Ethnicity Mix &nbsp;|&nbsp; Top Conditions</span>
+    <div id="eth-bar">–</div>
+    <div id="active-ints" style="margin-top:3px"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ APP ═══════════════════════ -->
+<div id="app">
+
+  <!-- About This Model -->
+  <div class="card">
+    <details id="about-panel">
+      <summary>ℹ️ About This Model — methodology, assumptions &amp; caveats (click to expand)</summary>
+      <div class="about-grid">
+
+        <div class="about-col">
+          <h4>What this is</h4>
+          <p>A synthetic GP population health simulator designed for educational and research use. It models a 10,000-patient list with demographic characteristics representative of a Harrow, NW London practice — one of the most ethnically diverse boroughs in England.</p>
+          <br>
+          <p>The simulator allows exploration of how population-level interventions affect mortality and disease prevalence over time, using a monthly tick engine with probabilistic incident and death events.</p>
+        </div>
+
+        <div class="about-col">
+          <h4>Clinical foundations</h4>
+          <ul>
+            <li><strong>Mortality rates:</strong> ONS England &amp; Wales life tables, with comorbidity multipliers from published literature (UKPDS, DAPA-HF, EMPEROR, EMPA-REG)</li>
+            <li><strong>Condition prevalence:</strong> Calibrated against QOF 2022/23 national averages, adjusted for Harrow ethnicity profile</li>
+            <li><strong>NICE guidelines:</strong> NG136 (HTN), NG28 (T2DM), NG196 (AF), NG106 (HF), NG115 (COPD)</li>
+            <li><strong>QRISK:</strong> Simplified scoring based on QRISK3 variables (age, sex, ethnicity, BMI, SBP, cholesterol, comorbidities, smoking)</li>
+            <li><strong>CHA₂DS₂-VASc:</strong> Standard ESC scoring for AF anticoagulation decisions</li>
+            <li><strong>Ethnicity risk:</strong> South Asian CVD multipliers from Bhopal et al.; Pakistani T2DM 3× risk from Bradford/Leicester cohort data; Black HTN elevation from UK Biobank</li>
+          </ul>
+        </div>
+
+        <div class="about-col">
+          <h4>Intervention evidence base</h4>
+          <ul>
+            <li><strong>Polypill:</strong> TIPS/PolyIran trials — ~25% MI reduction, ~20% stroke reduction for statin + antihypertensive combinations</li>
+            <li><strong>Intensive DM:</strong> DAPA-HF (dapagliflozin 26% HF reduction), EMPEROR-Reduced (empagliflozin 25% HF reduction), UKPDS (intensive glucose control 24% MI reduction)</li>
+            <li><strong>Smoking cessation:</strong> ASH/NICE: 3% monthly quit rate with programme support; Doll/Hill cohort — ex-smoker mortality trends</li>
+            <li><strong>COVID wave:</strong> ONS COVID-19 mortality by age — age 70+ hazard ratio ~3× baseline; Long COVID prevalence ~10% exposed (REACT-2)</li>
+          </ul>
+          <br>
+          <h4>Limitations</h4>
+          <ul>
+            <li>Synthetic patients — not real individuals</li>
+            <li>Simplified QRISK (not validated algorithm)</li>
+            <li>No socioeconomic gradient within ethnicities</li>
+            <li>Drug side-effects and discontinuation not modelled</li>
+            <li>Multi-morbidity interaction effects simplified</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="about-disclaimer">
+        ⚠️ <strong>Educational &amp; research use only.</strong> This simulator uses synthetic data and approximated clinical parameters. It is not validated for clinical decision-making, service planning, or commissioning. Results should not be used to guide treatment of individual patients or to make resource allocation decisions without reference to primary evidence and local epidemiological data.
+      </div>
+
+      <div class="about-author">
+        🏥 <strong>Developed at a Harrow, NW London GP practice</strong> using Claude AI (Anthropic). Built to support population health education, public health training, and scenario planning discussions among clinical colleagues. The model is open-source and freely shareable — if you adapt or extend it, please retain this methodology note. Feedback and suggestions welcome.
+      </div>
+    </details>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <div id="ctrl-row">
+      <button class="btn-blue"  onclick="stepMonths(1)">⏩ 1 Month</button>
+      <button class="btn-blue"  onclick="stepMonths(12)">⏭ 1 Year</button>
+      <button class="btn-green" id="btn-auto" onclick="toggleAuto()">▶ Auto-Run</button>
+      <button class="btn-gray"  onclick="resetSim()">↺ Reset</button>
+      <span class="speed-wrap">Speed: <input type="range" id="speed" min="1" max="20" value="4"> <span id="spv">4×</span></span>
+      <span class="kbd"><kbd>Space</kbd>1mo &nbsp;<kbd>Y</kbd>1yr &nbsp;<kbd>A</kbd>auto &nbsp;<kbd>Esc</kbd>modal</span>
+    </div>
+  </div>
+
+  <!-- Demographics -->
+  <div class="card">
+    <details id="demo-panel">
+      <summary>🧑‍🤝‍🧑 Harrow Demographics &amp; Ethnicity Profile — click to adjust</summary>
+      <div id="demo-inner">
+        <div class="slider-group">
+          <div class="slider-row">
+            <label><span class="eth-swatch" style="background:#d69e2e"></span> South Asian %</label>
+            <input type="range" id="d-sa" min="0" max="90" value="40" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-sa">40%</span>
+          </div>
+          <div class="slider-row">
+            <label><span class="eth-swatch" style="background:#2d3748"></span>&nbsp; Pakistani within SA %<span class="slider-sub">(3× T2DM risk)</span></label>
+            <input type="range" id="d-paki" min="0" max="80" value="30" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-paki">30%</span>
+          </div>
+          <div class="slider-row">
+            <label><span class="eth-swatch" style="background:#276749"></span> Black / Afro-Caribbean %</label>
+            <input type="range" id="d-blk" min="0" max="90" value="20" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-blk">20%</span>
+          </div>
+          <div class="slider-row">
+            <label><span class="eth-swatch" style="background:#e2e8f0;border:1px solid #aaa"></span> Other %</label>
+            <input type="range" id="d-oth" min="0" max="30" value="5" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-oth">5%</span>
+          </div>
+          <div class="slider-row" style="margin-top:4px">
+            <label><span class="eth-swatch" style="background:#3182ce"></span> White British (auto)</label>
+            <span class="computed-val" id="dv-wht">35%</span>
+          </div>
+          <p class="demo-note">⚠ Changes take effect on Reset or Rebuild Population</p>
+          <button class="btn-orange" style="margin-top:8px;width:fit-content" onclick="rebuildPopulation()">🔄 Rebuild Population (10,000)</button>
+        </div>
+        <div class="slider-group">
+          <div class="slider-row">
+            <label>Deprivation index (1=least, 5=most)</label>
+            <input type="range" id="d-dep" min="1" max="5" value="3" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-dep">3</span>
+          </div>
+          <div class="slider-row">
+            <label>Baseline smoking prevalence %</label>
+            <input type="range" id="d-smk" min="5" max="35" value="13" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-smk">13%</span>
+          </div>
+          <div class="slider-row">
+            <label>Mean BMI offset (±5)</label>
+            <input type="range" id="d-bmi" min="-5" max="5" value="0" oninput="updateDemoSliders()">
+            <span class="slider-val" id="dv-bmi">+0</span>
+          </div>
+          <p class="demo-note">Deprivation and lifestyle factors affect baseline comorbidity prevalence and incident rates.</p>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- Interventions -->
+  <div class="card">
+    <div class="card-title">🔬 Interventions — any combination active simultaneously</div>
+    <div id="int-grid">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- Scenario Capture -->
+  <div class="card">
+    <div class="card-title">📊 Scenario Comparison</div>
+    <div id="scenario-row">
+      <input type="text" id="scenario-name" placeholder="Label this scenario…" value="Baseline">
+      <button class="btn-blue" onclick="captureScenario()">📸 Save Mortality Curve</button>
+      <button class="btn-gray btn-sm" onclick="clearScenarios()">Clear All</button>
+      <span style="font-size:10px;color:var(--muted)">Saved curves overlay on the mortality chart →</span>
+    </div>
+    <div id="saved-list"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="row3">
+    <div class="card">
+      <div class="card-title">Population Pyramid</div>
+      <div class="chart-wrap" style="height:270px"><canvas id="c-pyr"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Cumulative Deaths (scenario comparison)</div>
+      <div class="chart-wrap" style="height:270px"><canvas id="c-mort"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Condition Prevalence (%)</div>
+      <div class="chart-wrap" style="height:270px"><canvas id="c-prev"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Patient Table -->
+  <div class="card">
+    <div class="card-title">Patient List (10,000)</div>
+    <div id="tbl-running-notice">▶ Simulation running — pause to browse patients</div>
+    <div id="tbl-filters">
+      <input type="text" id="f-name" placeholder="🔍 Search name…" oninput="renderTable()">
+      <select id="f-cond" onchange="renderTable()">
+        <option value="">All conditions</option>
+        <option>HTN</option><option>T2DM</option><option>CAD</option><option>HF</option>
+        <option>AF</option><option>CKD</option><option>COPD</option><option>Asthma</option>
+        <option>Depression</option><option>Cancer</option><option>Osteoporosis</option>
+        <option>Hypothyroidism</option><option>Stroke</option><option>Dementia</option><option>Long COVID</option>
+      </select>
+      <select id="f-eth" onchange="renderTable()">
+        <option value="">All ethnicities</option>
+        <option>South Asian</option><option>Black</option><option>White</option><option>Other</option>
+      </select>
+      Age: <input type="number" id="f-amin" placeholder="min" oninput="renderTable()">–
+           <input type="number" id="f-amax" placeholder="max" oninput="renderTable()">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px">
+        <input type="checkbox" id="f-alive" checked onchange="renderTable()"> Living only
+      </label>
+      <span id="tbl-count" style="margin-left:auto;font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortBy('id')">#</th>
+            <th onclick="sortBy('name')">Name</th>
+            <th onclick="sortBy('age')">Age</th>
+            <th onclick="sortBy('sex')">Sex</th>
+            <th onclick="sortBy('eth')">Ethnicity</th>
+            <th>Conditions</th>
+            <th onclick="sortBy('qrisk')">QRISK</th>
+            <th onclick="sortBy('mc')">Meds</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div id="tbl-meta">
+      <span id="tbl-showing"></span>
+      <div id="tbl-pages">
+        <button class="btn-gray btn-sm" onclick="prevPage()">‹ Prev</button>
+        <span id="tbl-page-lbl"></span>
+        <button class="btn-gray btn-sm" onclick="nextPage()">Next ›</button>
+      </div>
+    </div>
+  </div>
+</div><!-- end #app -->
+
+<!-- ═══════════════════════ MODAL ═══════════════════════ -->
+<div id="modal-bg" onclick="onBgClick(event)">
+  <div id="modal">
+    <button id="modal-x" onclick="closeModal()">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ╔══════════════════════════════════════════════════════╗
+// ║  SEEDED RNG — Mulberry32                             ║
+// ╚══════════════════════════════════════════════════════╝
+function mkRNG(seed) {
+  let s = seed >>> 0;
+  return {
+    rand() {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) >>> 0;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+    int(a, b)   { return a + Math.floor(this.rand() * (b - a + 1)); },
+    pick(arr)   { return arr[Math.floor(this.rand() * arr.length)]; },
+    norm(mu, sd){ const u=1-this.rand(), v=this.rand(); return mu + sd*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  };
+}
+let R = mkRNG(20240101); // reset on sim reset
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  NAME DATA                                            ║
+// ╚══════════════════════════════════════════════════════╝
+const NAMES = {
+  'South Asian': {
+    M:['Arjun','Dev','Rahul','Vikram','Sanjay','Ravi','Deepak','Rohan','Imran','Tariq',
+       'Adeel','Bilal','Faisal','Usman','Hassan','Omar','Zain','Asif','Ajay','Mohan',
+       'Naveen','Amit','Akash','Nikhil','Suresh','Sachin','Anil','Raj','Pradeep','Manoj'],
+    F:['Priya','Anita','Sunita','Meera','Pooja','Nisha','Kavita','Rekha','Asha','Deepa',
+       'Fatima','Ayesha','Sana','Zara','Hina','Nadia','Sadia','Rubina','Rabia','Amina',
+       'Lata','Usha','Geeta','Seema','Neha','Ritu','Swati','Divya','Sita','Mala'],
+    L:['Patel','Shah','Singh','Sharma','Kumar','Gupta','Verma','Chopra','Mehta','Rao',
+       'Khan','Ahmed','Ali','Malik','Hussain','Chaudhry','Mirza','Qureshi','Siddiqui','Butt',
+       'Joshi','Nair','Iyer','Menon','Reddy','Desai','Bose','Bhatt','Ghosh','Mukherjee']
+  },
+  'Black': {
+    M:['Marcus','Jerome','Devon','Tyrone','Leroy','Andre','Curtis','Darius','Emmanuel','Kwame',
+       'Ade','Chidi','Emeka','Femi','Tunde','Seun','Dayo','Kola','Nkem','Jabari','Winston','Errol'],
+    F:['Simone','Kezia','Yemi','Abena','Ife','Amara','Naomi','Grace','Blessing','Chioma',
+       'Ngozi','Adaeze','Nneka','Funke','Folake','Tosin','Jumoke','Shade','Bisi','Zara','Gloria','Pearl'],
+    L:['Johnson','Williams','Thompson','Campbell','Brown','Davis','Robinson','Wilson','Jackson',
+       'Okafor','Adeyemi','Okonkwo','Chukwu','Eze','Abiodun','Oluwaseun','Mensah','Asante','Boateng','Moore']
+  },
+  'White': {
+    M:['James','John','Robert','Michael','David','Richard','Thomas','Christopher','Daniel','Paul',
+       'Mark','Andrew','Peter','Brian','Kevin','Gary','Stephen','Alan','Graham','Ian','Derek','Colin'],
+    F:['Mary','Patricia','Jennifer','Linda','Barbara','Elizabeth','Susan','Sarah','Margaret','Dorothy',
+       'Lisa','Nancy','Karen','Betty','Helen','Sandra','Donna','Carol','Ruth','Christine','Sheila','Joan'],
+    L:['Smith','Jones','Williams','Taylor','Brown','Davies','Evans','Wilson','Thomas','Roberts',
+       'Johnson','Lewis','Walker','Robinson','Wood','Thompson','White','Hughes','Edwards','Green','Clarke','Hill']
+  },
+  'Other': {
+    M:['Wei','Jian','Carlos','Miguel','Ivan','Stefan','Yusuf','Ali','Tariq','Reza','Luca','Andrei'],
+    F:['Li','Mei','Maria','Elena','Natasha','Yasmin','Aisha','Ling','Fatima','Sara','Anca','Rosa'],
+    L:['Chen','Wang','Li','Zhang','Rodriguez','Martinez','Petrov','Kowalski','Osei','Dlamini','Nguyen','Al-Hassan']
+  }
+};
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  MEDICATION LISTS                                    ║
+// ╚══════════════════════════════════════════════════════╝
+const M_CCB    =['Amlodipine 5mg','Amlodipine 10mg','Felodipine 5mg'];
+const M_ACEI   =['Ramipril 5mg','Ramipril 10mg','Lisinopril 10mg','Perindopril 4mg'];
+const M_ARB    =['Losartan 50mg','Candesartan 8mg','Valsartan 80mg'];
+const M_BB     =['Bisoprolol 2.5mg','Bisoprolol 5mg','Atenolol 25mg','Carvedilol 6.25mg'];
+const M_THIA   =['Indapamide 1.25mg','Bendroflumethiazide 2.5mg'];
+const M_SPIRO  =['Spironolactone 25mg','Spironolactone 50mg'];
+const M_METF   =['Metformin 500mg','Metformin 1g'];
+const M_SGLT2  =['Dapagliflozin 10mg','Empagliflozin 10mg','Canagliflozin 100mg'];
+const M_GLP1   =['Semaglutide 0.5mg s/c weekly','Dulaglutide 0.75mg s/c weekly','Liraglutide 0.6mg daily'];
+const M_STAT   =['Atorvastatin 20mg','Atorvastatin 40mg','Rosuvastatin 10mg','Simvastatin 40mg'];
+const M_DOAC   =['Apixaban 5mg BD','Rivaroxaban 20mg OD','Edoxaban 60mg OD'];
+const M_SSRI   =['Sertraline 50mg','Citalopram 20mg','Fluoxetine 20mg','Escitalopram 10mg'];
+const M_SABA   =['Salbutamol 100mcg inhaler PRN'];
+const M_LAMA   =['Tiotropium 18mcg inhaler','Umeclidinium 55mcg inhaler'];
+const M_ICS    =['Beclometasone 200mcg BD inhaler','Fluticasone 100mcg BD inhaler'];
+const M_LEVO   =['Levothyroxine 50mcg','Levothyroxine 75mcg','Levothyroxine 100mcg'];
+const M_BISP   =['Alendronate 70mg weekly','Risedronate 35mg weekly'];
+const M_VITD   =['Colecalciferol 800IU daily','Adcal-D3 1 tablet BD'];
+const M_ASPIRIN=['Aspirin 75mg OD'];
+const M_DONEP  =['Donepezil 5mg','Rivastigmine 1.5mg BD'];
+
+const CLASS_MAP = {
+  CCB:M_CCB, ACEI:M_ACEI, ARB:M_ARB, BB:M_BB, THIA:M_THIA, SPIRO:M_SPIRO,
+  METF:M_METF, SGLT2:M_SGLT2, GLP1:M_GLP1, STAT:M_STAT, DOAC:M_DOAC,
+  SSRI:M_SSRI, SABA:M_SABA, LAMA:M_LAMA, ICS:M_ICS, LEVO:M_LEVO,
+  BISP:M_BISP, VITD:M_VITD, ASPIRIN:M_ASPIRIN, DONEP:M_DONEP,
+  CANCER_TX:['Oncology treatment (specialist-led)']
+};
+function hasC(meds,cls){ const l=CLASS_MAP[cls]||[]; for(const m of meds) if(l.includes(m)) return true; return false; }
+function addM(p,list)  { p.meds.add(R.pick(list)); }
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  AGE DISTRIBUTION (UK GP — elderly skewed)           ║
+// ╚══════════════════════════════════════════════════════╝
+const AGE_DIST=[
+  {lo:0,hi:4,w:5.5},{lo:5,hi:14,w:11},{lo:15,hi:24,w:10.5},
+  {lo:25,hi:34,w:12.5},{lo:35,hi:44,w:12},{lo:45,hi:54,w:13},
+  {lo:55,hi:64,w:12},{lo:65,hi:74,w:11},{lo:75,hi:84,w:8},{lo:85,hi:99,w:4.5}
+];
+const AGE_TOT = AGE_DIST.reduce((s,a)=>s+a.w,0);
+function randomAge() {
+  let r=R.rand()*AGE_TOT;
+  for(const a of AGE_DIST){r-=a.w;if(r<=0)return R.int(a.lo,a.hi);}
+  return 80;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  ETHNICITY (using demographic config)                ║
+// ╚══════════════════════════════════════════════════════╝
+function randomEthnicity(cfg) {
+  const r=R.rand()*100;
+  if(r < cfg.sa)  return 'South Asian';
+  if(r < cfg.sa+cfg.blk) return 'Black';
+  if(r < cfg.sa+cfg.blk+cfg.wht) return 'White';
+  return 'Other';
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  QRISK (simplified, clinically reasonable)           ║
+// ╚══════════════════════════════════════════════════════╝
+function calcQRISK(p) {
+  const a=Math.max(25,p.age);
+  let s=0;
+  if     (a>=85) s+=40; else if(a>=75) s+=26; else if(a>=65) s+=15;
+  else if(a>=55) s+=9;  else if(a>=45) s+=5;  else if(a>=35) s+=2.5; else s+=1;
+  if(p.sex==='M') s*=1.25;
+  if(p.eth==='South Asian') s*=(p.isPaki?1.65:1.45);
+  else if(p.eth==='Black')  s*=1.08;
+  else if(p.eth==='Other')  s*=1.1;
+  if(p.cond.has('HTN'))    s+=3.5;
+  if(p.cond.has('T2DM'))   s+=5.5;
+  if(p.cond.has('CAD'))    s+=13;
+  if(p.cond.has('HF'))     s+=7;
+  if(p.cond.has('AF'))     s+=5;
+  if(p.cond.has('CKD'))    s+=3.5;
+  if(p.cond.has('Stroke')) s+=6;
+  if(p.smoker)             s+=4.5;
+  if(p.bmi>=35)            s+=3;  else if(p.bmi>=30) s+=1.5;
+  if(p.sbp>150)            s+=3;  else if(p.sbp>140) s+=1.5;
+  if(p.chol>6)             s+=2;  else if(p.chol>5)  s+=0.8;
+  return Math.min(95, Math.round(s*10)/10);
+}
+
+function calcCHA2(p) {
+  let s=0;
+  if(p.age>=75) s+=2; else if(p.age>=65) s+=1;
+  if(p.sex==='F')          s+=1;
+  if(p.cond.has('HF'))     s+=1;
+  if(p.cond.has('HTN'))    s+=1;
+  if(p.cond.has('T2DM'))   s+=1;
+  if(p.cond.has('Stroke')) s+=2;
+  if(p.cond.has('CAD'))    s+=1;
+  return s;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  NICE TREATMENT LOGIC (NG136, NG28, NG196, NG106…)  ║
+// ╚══════════════════════════════════════════════════════╝
+function applyNICE(p) {
+  const c=p.cond, m=p.meds, eth=p.eth;
+  const intDM = SIM.int.intensiveDM;
+
+  // HTN (NG136)
+  if(c.has('HTN') && p.age>=18) {
+    if(eth==='Black'||eth==='South Asian') { if(!hasC(m,'CCB')) addM(p,M_CCB); }
+    else { if(!hasC(m,'ACEI')&&!hasC(m,'ARB')) addM(p,M_ACEI); }
+    if(p.sbp>145) {
+      if(!hasC(m,'CCB')) addM(p,M_CCB);
+      if(!hasC(m,'ACEI')&&!hasC(m,'ARB')) addM(p,M_ACEI);
+    }
+    if(p.sbp>152 && !hasC(m,'THIA')) addM(p,M_THIA);
+    if(p.sbp>162 && p.age>=30 && !hasC(m,'SPIRO')) addM(p,M_SPIRO);
+  }
+
+  // T2DM (NG28) — intensive = universal SGLT2i + GLP-1 for obesity
+  if(c.has('T2DM') && p.age>=18) {
+    if(!hasC(m,'METF')) addM(p,M_METF);
+    const sglt2Thresh = intDM ? 0.99 : (c.has('CAD')||c.has('HF')||c.has('CKD') ? 0.99 : 0.40);
+    if(R.rand()<sglt2Thresh && !hasC(m,'SGLT2')) addM(p,M_SGLT2);
+    const glp1Thresh  = intDM ? (p.bmi>27?0.85:0.10) : (p.bmi>32&&hasC(m,'SGLT2')?0.35:0);
+    if(R.rand()<glp1Thresh && !hasC(m,'GLP1')) addM(p,M_GLP1);
+  }
+
+  // Statin (QRISK>10)
+  if(p.qrisk>10 && !hasC(m,'STAT')) addM(p,M_STAT);
+
+  // AF (NG196)
+  if(c.has('AF')) {
+    if(calcCHA2(p)>=2 && !hasC(m,'DOAC')) addM(p,M_DOAC);
+    if(!hasC(m,'BB')) addM(p,M_BB);
+  }
+
+  // HF (NG106)
+  if(c.has('HF')) {
+    if(!hasC(m,'ACEI')&&!hasC(m,'ARB')) addM(p,M_ACEI);
+    if(!hasC(m,'BB')) addM(p,M_BB);
+    if(!hasC(m,'SGLT2')) addM(p,M_SGLT2);
+  }
+
+  // Depression (CG90)
+  if(c.has('Depression') && !hasC(m,'SSRI')) addM(p,M_SSRI);
+
+  // COPD (NG115)
+  if(c.has('COPD')) {
+    if(!hasC(m,'SABA')) m.add(M_SABA[0]);
+    if(R.rand()<0.65 && !hasC(m,'LAMA')) addM(p,M_LAMA);
+    if(R.rand()<0.30 && !hasC(m,'ICS'))  addM(p,M_ICS);
+  }
+
+  // Asthma
+  if(c.has('Asthma')) {
+    if(!hasC(m,'SABA')) m.add(M_SABA[0]);
+    if(R.rand()<0.72 && !hasC(m,'ICS')) addM(p,M_ICS);
+  }
+
+  // Hypothyroidism
+  if(c.has('Hypothyroidism') && !hasC(m,'LEVO')) addM(p,M_LEVO);
+
+  // Osteoporosis
+  if(c.has('Osteoporosis')) {
+    if(!hasC(m,'BISP')) addM(p,M_BISP);
+    if(!hasC(m,'VITD')) addM(p,M_VITD);
+  }
+
+  // Dementia
+  if(c.has('Dementia') && !hasC(m,'DONEP')) addM(p,M_DONEP);
+
+  // Cancer
+  if(c.has('Cancer') && !hasC(m,'CANCER_TX')) m.add('Oncology treatment (specialist-led)');
+
+  // Post-stroke secondary prevention
+  if(c.has('Stroke')) {
+    if(!hasC(m,'STAT')) addM(p,M_STAT);
+    if(!hasC(m,'ACEI')&&!hasC(m,'ARB')) addM(p,M_ACEI);
+  }
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  CONDITION SEEDING (age/ethnicity adjusted)          ║
+// ╚══════════════════════════════════════════════════════╝
+function seedCond(p, cfg) {
+  const a=p.age, c=p.cond;
+  const isSA=p.eth==='South Asian', isBlk=p.eth==='Black', isPaki=p.isPaki;
+  const depMult = 0.8 + cfg.dep*0.1; // deprivation 1-5 → mult 0.9–1.3
+  const smkRate = cfg.smk/100;
+
+  // Smoking (assigned at creation)
+  p.smoker = R.rand() < (isSA ? smkRate*0.55 : isBlk ? smkRate*0.70 : smkRate);
+
+  // HTN (~30% adjusted for ethnicity+age)
+  let hBase = isBlk ? 0.42 : isSA ? 0.33 : 0.28;
+  hBase *= depMult;
+  if(a<30) hBase*=0.10; else if(a<45) hBase*=0.35; else if(a<55) hBase*=0.65;
+  else if(a<65) hBase*=0.92; else hBase = Math.min(0.9, hBase*1.3);
+  if(R.rand()<hBase){ c.add('HTN'); p.sbp=Math.max(p.sbp,R.int(140,175)); }
+
+  // T2DM (base ~10%, Pakistani 3×)
+  let dBase = isPaki ? 0.30 : isSA ? 0.18 : isBlk ? 0.14 : 0.09;
+  dBase *= depMult;
+  if(a<25) dBase*=0.05; else if(a<40) dBase*=0.30; else if(a<50) dBase*=0.70; else dBase = Math.min(0.80, dBase*1.25);
+  if(R.rand()<dBase) c.add('T2DM');
+
+  // CAD
+  let cBase=(isSA&&p.sex==='M')?0.10:isBlk?0.05:0.06;
+  if(a<40) cBase*=0.03; else if(a<50) cBase*=0.18; else if(a<60) cBase*=0.45; else if(a<70) cBase*=0.80;
+  if(c.has('HTN')||c.has('T2DM')) cBase*=1.6;
+  if(R.rand()<Math.min(0.55,cBase)) c.add('CAD');
+
+  // HF
+  let hfBase=0.02;
+  if(a<50) hfBase*=0.10; else if(a<65) hfBase*=0.50; else if(a<75) hfBase*=1.0; else hfBase*=2.8;
+  if(c.has('CAD')) hfBase*=2.2;
+  if(R.rand()<Math.min(0.50,hfBase)) c.add('HF');
+
+  // COPD (smokers mainly)
+  let coBase=p.smoker?0.16:0.012;
+  if(a<40) coBase*=0.10; else if(a<55) coBase*=0.50;
+  if(R.rand()<Math.min(0.40,coBase)) c.add('COPD');
+
+  // CKD (linked to HTN/DM)
+  let ckBase=0.025;
+  if(c.has('HTN')) ckBase+=0.06; if(c.has('T2DM')) ckBase+=0.10;
+  if(a>=65) ckBase+=0.05; if(a>=75) ckBase+=0.08;
+  if(R.rand()<Math.min(0.60,ckBase)) c.add('CKD');
+
+  // Depression (~10%)
+  let dpBase=0.10*depMult;
+  if(a<15) dpBase*=0.20; if(a>=65) dpBase*=0.65;
+  if(R.rand()<dpBase) c.add('Depression');
+
+  // AF
+  let afBase=0.008;
+  if(a<50) afBase*=0.05; else if(a<65) afBase*=0.50; else if(a<75) afBase*=2.0; else afBase*=5.0;
+  if(c.has('HF')||c.has('HTN')) afBase*=1.5;
+  if(R.rand()<Math.min(0.50,afBase)) c.add('AF');
+
+  // Osteoporosis (women 60+)
+  if(p.sex==='F'&&a>=60){ const ob=Math.min(0.60,0.12+(a-60)*0.012); if(R.rand()<ob) c.add('Osteoporosis'); }
+
+  // Hypothyroidism (~3%)
+  let hyBase=p.sex==='F'?0.055:0.016; if(a>=50) hyBase*=1.6;
+  if(R.rand()<hyBase) c.add('Hypothyroidism');
+
+  // Asthma (~8%)
+  let asBase=0.08; if(a<10) asBase*=1.3; if(a>70) asBase*=0.7;
+  if(R.rand()<asBase) c.add('Asthma');
+
+  // Cancer
+  let caBase=0.005;
+  if(a<40) caBase*=0.15; else if(a<50) caBase*=0.50; else if(a<60) caBase*=1.0; else if(a<70) caBase*=2.5; else caBase*=4.5;
+  if(R.rand()<Math.min(0.40,caBase)) c.add('Cancer');
+
+  // Dementia (65+)
+  if(a>=65){ let dmBase=0.04*Math.pow((a-65)/10,1.5); if(R.rand()<Math.min(0.50,dmBase)) c.add('Dementia'); }
+
+  // Obesity flag
+  if(p.bmi>=30) {
+    if(R.rand()<0.12 && !c.has('HTN'))  c.add('HTN');
+    if(R.rand()<0.08 && !c.has('T2DM') && a>30) c.add('T2DM');
+  }
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  PATIENT FACTORY                                     ║
+// ╚══════════════════════════════════════════════════════╝
+let pid=0;
+function makePatient(ageOverride, cfg) {
+  pid++;
+  const eth  = randomEthnicity(cfg);
+  const sex  = R.rand()<0.50 ? 'M' : 'F';
+  const age  = ageOverride!==undefined ? ageOverride : randomAge();
+  const isPaki = (eth==='South Asian') && R.rand()<(cfg.pakiPct/100);
+
+  const nd    = NAMES[eth];
+  const fname = R.pick(sex==='M'?nd.M:nd.F);
+  const lname = R.pick(nd.L);
+
+  let sbp  = Math.round(R.norm(122,16)); sbp=Math.max(90,Math.min(195,sbp));
+  let bmi  = R.norm(27+cfg.bmiOff, 5); if(eth==='South Asian') bmi+=1.5;
+  bmi = Math.round(Math.max(16,Math.min(55,bmi))*10)/10;
+  const chol = Math.round(Math.max(2.5,Math.min(9.5,R.norm(5.0,1.1)))*10)/10;
+  const depScore = cfg.dep; // 1-5
+
+  const p={
+    id:pid, name:fname+' '+lname, fname, lname,
+    eth, sex, age, ageMonths:age*12+R.int(0,11),
+    isPaki, bmi, sbp, chol, smoker:false, exSmoker:false,
+    depScore,
+    cond:new Set(), meds:new Set(),
+    qrisk:0, events:[], alive:true, deathMonth:null
+  };
+
+  seedCond(p, cfg);
+  p.qrisk = calcQRISK(p);
+  applyNICE(p);
+  return p;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  ONS MORTALITY TABLE (annual rates)                  ║
+// ╚══════════════════════════════════════════════════════╝
+const MORT_TBL=[
+  {lo:0,hi:0,r:0.0040},{lo:1,hi:4,r:0.0002},{lo:5,hi:14,r:0.0001},
+  {lo:15,hi:24,r:0.0004},{lo:25,hi:34,r:0.0007},{lo:35,hi:44,r:0.0014},
+  {lo:45,hi:54,r:0.0040},{lo:55,hi:64,r:0.0100},{lo:65,hi:74,r:0.0250},
+  {lo:75,hi:84,r:0.0600},{lo:85,hi:999,r:0.1500}
+];
+function annualMort(p) {
+  let r=0.015;
+  for(const row of MORT_TBL){ if(p.age>=row.lo&&p.age<=row.hi){r=row.r;break;} }
+
+  // Comorbidity multipliers
+  if(p.cond.has('Cancer'))   r*=3.2;
+  if(p.cond.has('HF'))       r*=2.6;
+  if(p.cond.has('CAD'))      r*=1.6;
+  if(p.cond.has('CKD'))      r*=1.5;
+  if(p.cond.has('COPD'))     r*=1.35;
+  if(p.cond.has('T2DM'))     r*=1.25;
+  if(p.cond.has('Stroke'))   r*=1.55;
+  if(p.cond.has('Dementia')) r*=2.0;
+  if(p.smoker)               r*=1.22;
+  if(p.exSmoker)             r*=1.08;
+
+  // Intervention reductions
+  if(SIM.int.intensiveDM && p.cond.has('T2DM')) r*=0.78; // SGLT2i/GLP-1 CV benefit
+  if(SIM.int.smokingCess && p.exSmoker)          r*=0.95; // programme benefit
+  if(SIM.int.polypill && p.qrisk>10 && hasC(p.meds,'STAT')) r*=0.90; // statin mortality benefit
+  if(SIM.int.nice && hasC(p.meds,'STAT') && p.qrisk>10)     r*=0.92;
+
+  // COVID spike
+  if(SIM.covidLeft>0) {
+    r*= p.age>=70 ? 2.8 : p.age>=55 ? 2.0 : p.age>=40 ? 1.5 : 1.2;
+    if(SIM.int.intensiveDM && p.cond.has('T2DM')) r*=0.85; // DM better managed → less COVID mortality
+  }
+
+  // Deprivation
+  if(SIM.int.deprivation) r*=1.12;
+
+  return r;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  INCIDENT PROBABILITIES (annual; intervention-aware) ║
+// ╚══════════════════════════════════════════════════════╝
+function incProbs(p) {
+  const a=p.age, isSA=p.eth==='South Asian', isBlk=p.eth==='Black';
+  const dep=SIM.int.deprivation;
+  const intDM=SIM.int.intensiveDM;
+
+  // Base MI multiplier: reduced if on statin (polypill/NICE) or intensive DM
+  let miMult  = 1;
+  let strMult = 1;
+  if(SIM.int.polypill && p.qrisk>10 && hasC(p.meds,'STAT')) { miMult*=0.75; strMult*=0.80; }
+  if(SIM.int.nice && hasC(p.meds,'STAT') && p.qrisk>10)      { miMult*=0.88; strMult*=0.88; }
+  if(intDM && p.cond.has('T2DM')) { miMult*=0.65; strMult*=0.65; } // SGLT2i/GLP-1 CV benefit
+
+  return {
+    newHTN: p.cond.has('HTN') ? 0 :
+      Math.max(0,(isBlk?0.040:0.028)*Math.pow(Math.max(0,a-25)/40,1.4)*(dep?1.35:1)),
+
+    newDM: p.cond.has('T2DM') ? 0 :
+      Math.max(0,(p.isPaki?0.030:isSA?0.020:isBlk?0.013:0.009)
+                *Math.pow(Math.max(0,a-30)/30,1.2)*(dep?1.5:1)*(p.bmi>=30?1.5:1)),
+
+    newAF: p.cond.has('AF') ? 0 :
+      Math.max(0,0.004*Math.pow(Math.max(0,a-50)/20,1.8)
+                *(p.cond.has('HF')||p.cond.has('HTN')?1.6:1)),
+
+    newHF: p.cond.has('HF') ? 0 :
+      Math.max(0,0.003*Math.pow(Math.max(0,a-50)/20,2.0)*(p.cond.has('CAD')?2.2:1)
+                *(intDM&&p.cond.has('T2DM')?0.50:1)),  // SGLT2i halves HF incidence in DM
+
+    newDep: p.cond.has('Depression') ? 0 :
+      0.022*(dep?1.6:1)*(a<15?0.2:1),
+
+    MI: Math.max(0,(p.cond.has('CAD')?0.040:0.006)*Math.max(0.1,p.qrisk/35)
+               *(isSA?1.3:1)*miMult),
+
+    stroke: p.cond.has('Stroke') ? 0.012 :
+      Math.max(0,(p.cond.has('AF')?0.028:0.006)*(isBlk?1.55:1)
+               *(p.cond.has('HTN')?1.4:1)*Math.max(0.5,a/60)*strMult),
+
+    CKDprog: p.cond.has('CKD') ? Math.max(0,0.065*(intDM&&p.cond.has('T2DM')?0.50:1)) : 0,
+
+    newCancer: p.cond.has('Cancer') ? 0 :
+      Math.max(0,0.005*Math.pow(Math.max(0,a-40)/30,1.7)),
+
+    newCOPD: (p.cond.has('COPD')||!p.smoker) ? 0 :
+      Math.max(0,0.006*Math.pow(Math.max(0,a-40)/20,1.2)),
+
+    newDem: (p.cond.has('Dementia')||a<60) ? 0 :
+      Math.max(0,0.003*Math.pow((a-60)/15,1.8))
+  };
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  SIMULATION STATE                                    ║
+// ╚══════════════════════════════════════════════════════╝
+const SIM = {
+  patients:[],
+  month:0, deathsYear:0, yearBound:0, cumDeaths:0,
+  mortalityCurve:[], // [{mo, cd}]
+  savedScenarios:[], // [{label, color, curve:[{mo,cd}]}]
+  covidLeft:0,
+  autoTimer:null,
+  int:{ polypill:false, intensiveDM:false, smokingCess:false, cancer:false, covid:false, deprivation:false, nice:false },
+  trend:{ months:[], data:{} },
+  cfg:{ sa:40, blk:20, wht:35, oth:5, pakiPct:30, dep:3, smk:13, bmiOff:0 },
+  tablePage:0, tablePageSize:50,
+  sortKey:'id', sortAsc:true,
+  filteredCache:[]
+};
+
+const TREND_CONDS  = ['HTN','T2DM','CAD','HF','AF','CKD','COPD','Asthma','Depression','Cancer','Dementia'];
+const TREND_COLORS = ['#e53e3e','#d69e2e','#c53030','#9f7aea','#3182ce','#2b6cb0',
+                      '#38a169','#2c7a7b','#718096','#e07070','#805ad5'];
+const SCEN_COLORS  = ['#e53e3e','#38a169','#3182ce','#9f7aea','#dd6b20','#2c7a7b','#d69e2e'];
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  TICK — 1 month                                      ║
+// ╚══════════════════════════════════════════════════════╝
+function tick() {
+  SIM.month++;
+  if(SIM.month > SIM.yearBound+12){ SIM.deathsYear=0; SIM.yearBound=SIM.month-1; }
+  if(SIM.covidLeft>0) SIM.covidLeft--;
+
+  let newDeaths=0;
+  const newPts=[];
+
+  for(const p of SIM.patients) {
+    if(!p.alive) continue;
+
+    // Age
+    p.ageMonths++;
+    p.age = Math.floor(p.ageMonths/12);
+
+    // Mortality
+    const am = annualMort(p);
+    const mm = 1 - Math.pow(1-am, 1/12);
+    if(R.rand()<mm) {
+      p.alive=false; p.deathMonth=SIM.month;
+      p.events.push({mo:SIM.month,type:'death',txt:'💀 Death recorded'});
+      SIM.deathsYear++; newDeaths++;
+      newPts.push(makePatient(R.int(18,50), SIM.cfg));
+      continue;
+    }
+
+    // Smoking cessation programme: 3% of smokers quit per month
+    if(SIM.int.smokingCess && p.smoker && R.rand()<0.03) {
+      p.smoker=false; p.exSmoker=true;
+      p.events.push({mo:SIM.month,type:'diag',txt:'🚭 Stopped smoking (cessation programme)'});
+    }
+
+    // Deprivation BMI creep
+    if(SIM.int.deprivation && R.rand()<0.02) p.bmi=Math.min(55,p.bmi+0.2);
+
+    // COVID Long COVID seeding
+    if(SIM.covidLeft>0 && R.rand()<0.022 && !p.cond.has('Long COVID')) {
+      p.cond.add('Long COVID');
+      p.events.push({mo:SIM.month,type:'diag',txt:'🦠 Long COVID'});
+    }
+
+    // Incidents
+    const ip=incProbs(p);
+    for(const [k,ann] of Object.entries(ip)) {
+      if(ann<=0) continue;
+      if(R.rand()<ann/12) handleIncident(p,k);
+    }
+
+    // Recalculate QRISK + NICE
+    p.qrisk=calcQRISK(p);
+    applyNICE(p);
+    applyIntPatient(p);
+  }
+
+  SIM.cumDeaths+=newDeaths;
+  SIM.mortalityCurve.push({mo:SIM.month, cd:SIM.cumDeaths});
+
+  for(const np of newPts) SIM.patients.push(np);
+
+  // Record trends every 3 months
+  if(SIM.month%3===0) recordTrend();
+
+  updateUI();
+}
+
+function handleIncident(p, type) {
+  const mo=SIM.month;
+  switch(type) {
+    case 'newHTN':   p.cond.add('HTN'); p.sbp=Math.max(p.sbp,R.int(140,176)); p.events.push({mo,type:'diag',txt:'📋 New: Hypertension'}); break;
+    case 'newDM':    p.cond.add('T2DM'); p.events.push({mo,type:'diag',txt:'📋 New: Type 2 Diabetes'}); break;
+    case 'newAF':    p.cond.add('AF');   p.events.push({mo,type:'diag',txt:'📋 New: Atrial Fibrillation'}); break;
+    case 'newHF':    p.cond.add('HF');   p.events.push({mo,type:'diag',txt:'📋 New: Heart Failure'}); break;
+    case 'newDep':   p.cond.add('Depression'); p.events.push({mo,type:'diag',txt:'📋 New: Depression'}); break;
+    case 'MI':       if(!p.cond.has('CAD')) p.cond.add('CAD'); p.events.push({mo,type:'event',txt:'⚡ Myocardial Infarction'}); break;
+    case 'stroke':   p.cond.add('Stroke'); p.events.push({mo,type:'event',txt:'🧠 Stroke'}); break;
+    case 'CKDprog':  p.events.push({mo,type:'diag',txt:'📋 CKD stage progression'}); break;
+    case 'newCancer':p.cond.add('Cancer'); p.events.push({mo,type:'diag',txt:'📋 New: Cancer'}); break;
+    case 'newCOPD':  p.cond.add('COPD'); p.events.push({mo,type:'diag',txt:'📋 New: COPD'}); break;
+    case 'newDem':   p.cond.add('Dementia'); p.events.push({mo,type:'diag',txt:'📋 New: Dementia'}); break;
+  }
+}
+
+function applyIntPatient(p) {
+  // Polypill: statin + antihypertensive + aspirin for QRISK>10
+  if(SIM.int.polypill && p.qrisk>10) {
+    if(!hasC(p.meds,'STAT'))    addM(p,M_STAT);
+    if(!hasC(p.meds,'ACEI')&&!hasC(p.meds,'CCB')) addM(p,M_ACEI);
+    if(!hasC(p.meds,'ASPIRIN')) p.meds.add(M_ASPIRIN[0]);
+  }
+  // Cure cancer: remove on each tick while intervention active
+  if(SIM.int.cancer && p.cond.has('Cancer')) {
+    p.cond.delete('Cancer');
+    p.meds.delete('Oncology treatment (specialist-led)');
+    p.events.push({mo:SIM.month,type:'diag',txt:'🎗 Cancer cured (intervention)'});
+  }
+  // Perfect NICE (extra pass)
+  if(SIM.int.nice) applyNICE(p);
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  CONTROLS                                            ║
+// ╚══════════════════════════════════════════════════════╝
+function stepMonths(n){ for(let i=0;i<n;i++) tick(); }
+
+function toggleAuto(){
+  if(SIM.autoTimer){
+    clearInterval(SIM.autoTimer); SIM.autoTimer=null;
+    document.getElementById('btn-auto').textContent='▶ Auto-Run';
+    document.getElementById('btn-auto').classList.remove('btn-auto-on');
+    document.getElementById('tbl-running-notice').style.display='none';
+    renderTable();
+  } else {
+    const speed=parseInt(document.getElementById('speed').value);
+    const ms=Math.round(1000/speed);
+    SIM.autoTimer=setInterval(tick,ms);
+    document.getElementById('btn-auto').textContent='⏸ Pause';
+    document.getElementById('btn-auto').classList.add('btn-auto-on');
+    document.getElementById('tbl-running-notice').style.display='block';
+  }
+}
+
+document.getElementById('speed').addEventListener('input',function(){
+  document.getElementById('spv').textContent=this.value+'×';
+  if(SIM.autoTimer){
+    clearInterval(SIM.autoTimer);
+    SIM.autoTimer=setInterval(tick,Math.round(1000/parseInt(this.value)));
+  }
+});
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  DEMOGRAPHICS                                        ║
+// ╚══════════════════════════════════════════════════════╝
+function updateDemoSliders(){
+  const sa  = parseInt(document.getElementById('d-sa').value);
+  const blk = parseInt(document.getElementById('d-blk').value);
+  const oth = parseInt(document.getElementById('d-oth').value);
+  const wht = Math.max(0,100-sa-blk-oth);
+  const paki= parseInt(document.getElementById('d-paki').value);
+  const dep = parseInt(document.getElementById('d-dep').value);
+  const smk = parseInt(document.getElementById('d-smk').value);
+  const bmiOff = parseInt(document.getElementById('d-bmi').value);
+
+  document.getElementById('dv-sa').textContent  = sa+'%';
+  document.getElementById('dv-blk').textContent = blk+'%';
+  document.getElementById('dv-oth').textContent = oth+'%';
+  document.getElementById('dv-wht').textContent = wht+'%';
+  document.getElementById('dv-paki').textContent= paki+'%';
+  document.getElementById('dv-dep').textContent = dep;
+  document.getElementById('dv-smk').textContent = smk+'%';
+  document.getElementById('dv-bmi').textContent = (bmiOff>=0?'+':'')+bmiOff;
+
+  SIM.cfg = {sa,blk,wht,oth,pakiPct:paki,dep,smk,bmiOff};
+}
+
+function rebuildPopulation(){
+  if(SIM.autoTimer) toggleAuto();
+  updateDemoSliders();
+  R=mkRNG(20240101); pid=0;
+  SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
+  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}};
+  SIM.patients=generatePop(10000,SIM.cfg);
+  recordTrend(); updateUI(); refreshPyramid(); refreshPrev();
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  INTERVENTIONS                                       ║
+// ╚══════════════════════════════════════════════════════╝
+const INT_DEFS=[
+  {key:'polypill',    icon:'💊', name:'Polypill Rollout',
+   desc:'Statin + antihypertensive + aspirin for all QRISK>10%. Reduces MI 25%, stroke 20%.',
+   col:'#2b6cb0',bg:'#ebf8ff'},
+  {key:'intensiveDM', icon:'🩺', name:'Intensive DM Management',
+   desc:'Universal SGLT2i; GLP-1 for BMI>27. Reduces DM-related CV mortality ~22%, HF incidence 50%, CKD progression 50%.',
+   col:'#276749',bg:'#f0fff4'},
+  {key:'smokingCess', icon:'🚭', name:'Smoking Cessation Programme',
+   desc:'3% of smokers quit each month. Reduces COPD, lung cancer, and CV risk for ex-smokers.',
+   col:'#744210',bg:'#fefcbf'},
+  {key:'cancer',      icon:'🎗', name:'Cure Cancer',
+   desc:'Remove all active cancer diagnoses and suppress new cancer incidence while active.',
+   col:'#9b2c2c',bg:'#fff5f5'},
+  {key:'covid',       icon:'🦠', name:'COVID-19 Wave',
+   desc:'3-month mortality spike (up to 2.8× in elderly) + 2.2% Long COVID per month of exposure.',
+   col:'#c53030',bg:'#fff5f5'},
+  {key:'deprivation', icon:'📉', name:'Deprivation Shock',
+   desc:'Worsening social determinants: ↑DM +50%, ↑depression +60%, ↑obesity, ↑mortality 12%.',
+   col:'#744210',bg:'#fffbeb'},
+  {key:'nice',        icon:'✅', name:'Perfect NICE Adherence',
+   desc:'All undertreated patients immediately optimised. Applies on every tick.',
+   col:'#553c9a',bg:'#f3e8ff'}
+];
+
+function buildIntGrid(){
+  const grid=document.getElementById('int-grid');
+  grid.innerHTML=INT_DEFS.map(d=>`
+    <div class="int-card" id="ic-${d.key}"
+         style="--accent-color:${d.col};--accent-bg:${d.bg}"
+         onclick="toggleInt('${d.key}')">
+      <div class="int-card-icon">${d.icon}</div>
+      <div class="int-card-name">${d.name}</div>
+      <div class="int-card-desc">${d.desc}</div>
+      <div class="int-card-status" id="is-${d.key}">○ Off</div>
+    </div>`).join('');
+}
+
+function toggleInt(key){
+  const card=document.getElementById('ic-'+key);
+  const stat=document.getElementById('is-'+key);
+
+  if(key==='covid'){
+    if(!SIM.int.covid){ SIM.int.covid=true; SIM.covidLeft=3; card.classList.add('on'); stat.textContent='● Active (3 months)'; }
+    else { SIM.int.covid=false; SIM.covidLeft=0; card.classList.remove('on'); stat.textContent='○ Off'; }
+    return;
+  }
+  if(key==='cancer'){
+    // Always fires; toggle keeps applying on each tick
+    SIM.int.cancer=!SIM.int.cancer;
+    if(SIM.int.cancer){
+      card.classList.add('on'); stat.textContent='● Active';
+      for(const p of SIM.patients) if(p.alive&&p.cond.has('Cancer')){ p.cond.delete('Cancer'); p.meds.delete('Oncology treatment (specialist-led)'); p.events.push({mo:SIM.month,type:'diag',txt:'🎗 Cancer cured'}); }
+    } else { card.classList.remove('on'); stat.textContent='○ Off'; }
+    updateUI(); return;
+  }
+  SIM.int[key]=!SIM.int[key];
+  if(SIM.int[key]){
+    card.classList.add('on'); stat.textContent='● Active';
+    if(key==='polypill') for(const p of SIM.patients) if(p.alive) applyIntPatient(p);
+    if(key==='intensiveDM'||key==='nice') for(const p of SIM.patients) if(p.alive){ p.qrisk=calcQRISK(p); applyNICE(p); }
+  } else {
+    card.classList.remove('on'); stat.textContent='○ Off';
+  }
+  updateUI();
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  SCENARIO CAPTURE                                    ║
+// ╚══════════════════════════════════════════════════════╝
+function captureScenario(){
+  if(SIM.mortalityCurve.length===0){ alert('Run the simulation first (step or auto-run) before capturing.'); return; }
+  const label = document.getElementById('scenario-name').value.trim() || `Scenario ${SIM.savedScenarios.length+1}`;
+  const color = SCEN_COLORS[SIM.savedScenarios.length % SCEN_COLORS.length];
+  SIM.savedScenarios.push({ label, color, curve:[...SIM.mortalityCurve] });
+  renderSavedScenarios();
+  refreshMort();
+}
+
+function deleteScenario(i){
+  SIM.savedScenarios.splice(i,1);
+  renderSavedScenarios();
+  refreshMort();
+}
+
+function clearScenarios(){
+  SIM.savedScenarios=[];
+  renderSavedScenarios();
+  refreshMort();
+}
+
+function renderSavedScenarios(){
+  const list=document.getElementById('saved-list');
+  if(!SIM.savedScenarios.length){ list.innerHTML='<span style="font-size:11px;color:#a0aec0;font-style:italic">No scenarios saved yet</span>'; return; }
+  list.innerHTML=SIM.savedScenarios.map((s,i)=>`
+    <span class="saved-chip" style="color:${s.color};border-color:${s.color};background:${s.color}18">
+      <span>■</span><span>${s.label}</span>
+      <button class="saved-chip-del" onclick="deleteScenario(${i})">×</button>
+    </span>`).join('');
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  TREND RECORDING                                     ║
+// ╚══════════════════════════════════════════════════════╝
+function recordTrend(){
+  const alive=SIM.patients.filter(p=>p.alive), n=alive.length;
+  if(!n) return;
+  SIM.trend.months.push(SIM.month);
+  for(const cond of TREND_CONDS){
+    if(!SIM.trend.data[cond]) SIM.trend.data[cond]=[];
+    SIM.trend.data[cond].push(Math.round(alive.filter(p=>p.cond.has(cond)).length/n*1000)/10);
+  }
+  if(SIM.trend.months.length>200){ SIM.trend.months.shift(); for(const c of TREND_CONDS) SIM.trend.data[c]&&SIM.trend.data[c].shift(); }
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  CHARTS                                              ║
+// ╚══════════════════════════════════════════════════════╝
+let C_PYR, C_MORT, C_PREV;
+
+function initCharts(){
+  const noAnim={animation:false,responsive:true,maintainAspectRatio:false};
+
+  // Population Pyramid
+  C_PYR=new Chart(document.getElementById('c-pyr'),{
+    type:'bar',
+    data:{labels:[],datasets:[]},
+    options:{...noAnim,indexAxis:'y',
+      plugins:{legend:{position:'top',labels:{boxWidth:9,font:{size:9}}},
+               tooltip:{callbacks:{label:ctx=>`${Math.abs(ctx.raw)}`}}},
+      scales:{x:{ticks:{callback:v=>Math.abs(v),font:{size:8}},grid:{color:'#f0f4f8'}},
+              y:{ticks:{font:{size:8}}}}}
+  });
+
+  // Cumulative Mortality
+  C_MORT=new Chart(document.getElementById('c-mort'),{
+    type:'line',
+    data:{labels:[],datasets:[]},
+    options:{...noAnim,
+      plugins:{legend:{position:'top',labels:{boxWidth:9,font:{size:9},padding:5}}},
+      scales:{
+        x:{ticks:{font:{size:8},maxRotation:0,callback(v,i){const m=SIM.mortalityCurve[i]?.mo;return m&&m%12===0?`Yr${m/12|0}`:'';}}},
+        y:{title:{display:true,text:'Cumulative deaths',font:{size:8}},ticks:{font:{size:8}}}
+      }}
+  });
+
+  // Prevalence Trend
+  C_PREV=new Chart(document.getElementById('c-prev'),{
+    type:'line',
+    data:{labels:[],datasets:TREND_CONDS.map((c,i)=>({label:c,data:[],borderColor:TREND_COLORS[i],backgroundColor:'transparent',borderWidth:1.6,pointRadius:0,tension:0.3}))},
+    options:{...noAnim,
+      plugins:{legend:{position:'right',labels:{boxWidth:9,font:{size:9},padding:4}}},
+      scales:{
+        x:{ticks:{font:{size:8},maxRotation:0,callback(v,i){const m=SIM.trend.months[i];return m&&m%12===0?`Yr${m/12|0}`:''}}},
+        y:{title:{display:true,text:'% prevalence',font:{size:8}},ticks:{font:{size:8}}}
+      }}
+  });
+}
+
+const BANDS=['0–4','5–9','10–14','15–19','20–24','25–29','30–34','35–39',
+             '40–44','45–49','50–54','55–59','60–64','65–69','70–74','75–79','80–84','85+'];
+
+function refreshPyramid(){
+  const male=new Array(BANDS.length).fill(0), fem=new Array(BANDS.length).fill(0);
+  for(const p of SIM.patients){
+    if(!p.alive) continue;
+    const i=Math.min(Math.floor(p.age/5),BANDS.length-1);
+    if(p.sex==='M') male[i]++; else fem[i]++;
+  }
+  C_PYR.data.labels=BANDS;
+  C_PYR.data.datasets=[
+    {label:'Male',  data:male.map(v=>-v),backgroundColor:'rgba(66,153,225,0.75)',borderColor:'#3182ce',borderWidth:1},
+    {label:'Female',data:fem,           backgroundColor:'rgba(252,129,129,0.75)',borderColor:'#e53e3e',borderWidth:1}
+  ];
+  C_PYR.update();
+}
+
+function refreshMort(){
+  // Current run
+  const labels = SIM.mortalityCurve.map(d=>d.mo);
+  const datasets=[];
+
+  // Saved scenarios (dashed)
+  for(const s of SIM.savedScenarios){
+    datasets.push({
+      label:s.label, data:s.curve.map(d=>d.cd),
+      borderColor:s.color, backgroundColor:'transparent',
+      borderWidth:1.8, borderDash:[5,3], pointRadius:0, tension:0.3
+    });
+  }
+  // Current run (solid white/dark)
+  if(SIM.mortalityCurve.length>0){
+    datasets.push({
+      label:'Current run', data:SIM.mortalityCurve.map(d=>d.cd),
+      borderColor:'#1a2a4a', backgroundColor:'transparent',
+      borderWidth:2.5, pointRadius:0, tension:0.3
+    });
+  }
+
+  C_MORT.data.labels=labels;
+  C_MORT.data.datasets=datasets;
+  C_MORT.options.scales.x.ticks.callback=(v,i)=>{
+    const m=SIM.mortalityCurve[i]?.mo;
+    return m&&m%12===0?`Yr${m/12|0}`:'';
+  };
+  C_MORT.update();
+}
+
+function refreshPrev(){
+  if(SIM.trend.months.length<2) return;
+  C_PREV.data.labels=SIM.trend.months;
+  for(let i=0;i<TREND_CONDS.length;i++)
+    C_PREV.data.datasets[i].data=SIM.trend.data[TREND_CONDS[i]]||[];
+  C_PREV.update();
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  STATS BAR                                           ║
+// ╚══════════════════════════════════════════════════════╝
+function refreshStats(){
+  const alive=SIM.patients.filter(p=>p.alive), n=alive.length;
+  if(!n) return;
+
+  document.getElementById('s-size').textContent=n.toLocaleString();
+  document.getElementById('s-age').textContent=(alive.reduce((s,p)=>s+p.age,0)/n).toFixed(1);
+  document.getElementById('s-dyr').textContent=SIM.deathsYear;
+  document.getElementById('s-dcum').textContent=SIM.cumDeaths;
+  document.getElementById('s-qr').textContent=(alive.reduce((s,p)=>s+p.qrisk,0)/n).toFixed(1)+'%';
+
+  const yr=SIM.month/12|0, mo=SIM.month%12;
+  document.getElementById('s-mo').textContent=`Yr ${yr} Mo ${mo}`;
+  document.getElementById('covid-badge').style.display=SIM.covidLeft>0?'inline-block':'none';
+
+  // Ethnicity bar
+  const ethCts={};
+  for(const p of alive) ethCts[p.eth]=(ethCts[p.eth]||0)+1;
+  const ethCols={'South Asian':'#d69e2e','Black':'#276749','White':'#3182ce','Other':'#a0aec0'};
+  document.getElementById('eth-bar').innerHTML=
+    Object.entries(ethCts).map(([e,c])=>
+      `<span><span class="eth-dot" style="background:${ethCols[e]||'#aaa'}"></span>${e}: ${(c/n*100).toFixed(0)}%</span>`
+    ).join(' · ');
+
+  // Active interventions
+  const active=INT_DEFS.filter(d=>SIM.int[d.key]);
+  document.getElementById('active-ints').innerHTML=active.length
+    ? active.map(d=>`<span class="int-badge">${d.icon} ${d.name}</span>`).join('')
+    : '<span style="opacity:0.5">No interventions active</span>';
+
+  // Top conditions
+  const cc={};
+  for(const p of alive) for(const c of p.cond) cc[c]=(cc[c]||0)+1;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  PATIENT TABLE (paginated, freezes during auto-run)  ║
+// ╚══════════════════════════════════════════════════════╝
+let lastTblRefresh=0;
+
+function renderTable(){
+  // Throttle during auto-run
+  if(SIM.autoTimer){ const n=Date.now(); if(n-lastTblRefresh<800) return; lastTblRefresh=n; return; }
+
+  const fName  = document.getElementById('f-name').value.toLowerCase();
+  const fCond  = document.getElementById('f-cond').value;
+  const fEth   = document.getElementById('f-eth').value;
+  const fAMin  = parseInt(document.getElementById('f-amin').value)||0;
+  const fAMax  = parseInt(document.getElementById('f-amax').value)||200;
+  const fAlive = document.getElementById('f-alive').checked;
+
+  let rows=SIM.patients.filter(p=>{
+    if(fAlive&&!p.alive) return false;
+    if(fName&&!p.name.toLowerCase().includes(fName)) return false;
+    if(fCond&&!p.cond.has(fCond)) return false;
+    if(fEth&&p.eth!==fEth) return false;
+    if(p.age<fAMin||p.age>fAMax) return false;
+    return true;
+  });
+
+  rows.sort((a,b)=>{
+    const av=SIM.sortKey==='mc'?a.meds.size:a[SIM.sortKey]||0;
+    const bv=SIM.sortKey==='mc'?b.meds.size:b[SIM.sortKey]||0;
+    if(av<bv) return SIM.sortAsc?-1:1;
+    if(av>bv) return SIM.sortAsc?1:-1;
+    return 0;
+  });
+
+  SIM.filteredCache=rows;
+  const total=rows.length;
+  const pages=Math.max(1,Math.ceil(total/SIM.tablePageSize));
+  SIM.tablePage=Math.min(SIM.tablePage,pages-1);
+  const page=rows.slice(SIM.tablePage*SIM.tablePageSize,(SIM.tablePage+1)*SIM.tablePageSize);
+
+  document.getElementById('tbl-count').textContent=total.toLocaleString()+' patients';
+  document.getElementById('tbl-showing').textContent=`Showing ${page.length} of ${total.toLocaleString()}`;
+  document.getElementById('tbl-page-lbl').textContent=`Page ${SIM.tablePage+1} / ${pages}`;
+
+  const ethCols={'South Asian':'#d69e2e','Black':'#276749','White':'#3182ce','Other':'#a0aec0'};
+
+  document.getElementById('tbody').innerHTML=page.map(p=>{
+    const tags=[...p.cond].slice(0,4).map(c=>`<span class="tag t-${c.replace(' ','')}">${c}</span>`).join('');
+    const extra=p.cond.size>4?`<span class="tag t-def">+${p.cond.size-4}</span>`:'';
+    const qc=p.qrisk>=20?'#e53e3e':p.qrisk>=10?'#dd6b20':'#38a169';
+    const ethDot=`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${ethCols[p.eth]||'#aaa'};margin-right:4px"></span>`;
+    return `<tr class="${p.alive?'':'dead-row'}" onclick="openModal(${p.id})">
+      <td style="color:#a0aec0">${p.id}</td>
+      <td><b>${p.name}</b>${!p.alive?` <small style="color:#e53e3e">✝Mo${p.deathMonth}</small>`:''}</td>
+      <td>${p.age}</td><td>${p.sex}</td>
+      <td>${ethDot}<small>${p.eth}${p.isPaki?' (Pak)':''}</small></td>
+      <td>${tags}${extra}</td>
+      <td style="font-weight:700;color:${qc}">${p.qrisk}%</td>
+      <td>${p.meds.size}</td>
+    </tr>`;
+  }).join('');
+}
+
+window.renderTable=renderTable; // exposed for filter oninput
+
+function sortBy(key){
+  if(SIM.sortKey===key) SIM.sortAsc=!SIM.sortAsc; else{SIM.sortKey=key;SIM.sortAsc=true;}
+  SIM.tablePage=0; renderTable();
+}
+function prevPage(){ if(SIM.tablePage>0){SIM.tablePage--;renderTable();} }
+function nextPage(){
+  const pages=Math.max(1,Math.ceil((SIM.filteredCache.length||1)/SIM.tablePageSize));
+  if(SIM.tablePage<pages-1){SIM.tablePage++;renderTable();}
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  PATIENT MODAL                                       ║
+// ╚══════════════════════════════════════════════════════╝
+function openModal(id){
+  const p=SIM.patients.find(x=>x.id===id);
+  if(!p) return;
+  const qc=p.qrisk>=20?'#e53e3e':p.qrisk>=10?'#dd6b20':'#38a169';
+  const cha2=p.cond.has('AF')?` · CHA₂DS₂-VASc: ${calcCHA2(p)}`:'';
+  const condHtml=[...p.cond].map(c=>`<span class="tag t-${c.replace(' ','')} " style="font-size:11px;padding:3px 8px">${c}</span>`).join(' ')||'<span class="none-m">No recorded conditions</span>';
+  const medHtml=[...p.meds].map(m=>`<div class="med-r">💊 ${m}</div>`).join('')||'<span class="none-m">No medications</span>';
+  const evtHtml=[...p.events].reverse().slice(0,30).map(e=>`<li class="evt-li"><span class="evt-mo">Yr${e.mo/12|0}/Mo${e.mo%12}</span><span>${e.txt}</span></li>`).join('')||'<li class="none-m" style="padding:5px 0">No events</li>';
+
+  document.getElementById('modal-body').innerHTML=`
+    <h2>${p.name}${!p.alive?` <small style="color:#e53e3e;font-size:13px">(Deceased)</small>`:''}</h2>
+    <p class="modal-sub">${p.sex==='M'?'Male':'Female'} · Age ${p.age} · ${p.eth}${p.isPaki?' (Pakistani/Bangladeshi)':''} · BMI ${p.bmi} · ${p.smoker?'🚬 Smoker':p.exSmoker?'🚭 Ex-smoker':'Non-smoker'} · ID #${p.id}</p>
+    <div class="msec">
+      <div class="msec-t">Vitals &amp; QRISK</div>
+      <div class="vitals-g">
+        <div class="vital"><div class="vital-v">${p.sbp}</div><div class="vital-l">SBP mmHg</div></div>
+        <div class="vital"><div class="vital-v">${p.chol}</div><div class="vital-l">Chol mmol/L</div></div>
+        <div class="vital"><div class="vital-v">${p.bmi}</div><div class="vital-l">BMI</div></div>
+        <div class="vital"><div class="vital-v" style="color:${qc}">${p.qrisk}%</div><div class="vital-l">QRISK</div></div>
+      </div>
+      <div class="qtrack"><div class="qfill" style="width:${Math.min(100,p.qrisk)}%;background:${qc}">${p.qrisk}%</div></div>
+      <div style="font-size:10px;color:#718096;margin-top:3px">${p.qrisk<10?'🟢 Low (<10%)':p.qrisk<20?'🟡 Moderate (10–20%) — statin indicated':'🔴 High (>20%) — intensive management'}${cha2}</div>
+    </div>
+    <div class="msec"><div class="msec-t">Conditions (${p.cond.size})</div>${condHtml}</div>
+    <div class="msec"><div class="msec-t">Medications (${p.meds.size})</div><div class="meds-list">${medHtml}</div></div>
+    <div class="msec"><div class="msec-t">Events (latest 30)</div><ul class="evt-ul">${evtHtml}</ul></div>`;
+  document.getElementById('modal-bg').classList.add('open');
+}
+function closeModal(){ document.getElementById('modal-bg').classList.remove('open'); }
+function onBgClick(e){ if(e.target===document.getElementById('modal-bg')) closeModal(); }
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  MASTER UI UPDATE (throttled during auto-run)        ║
+// ╚══════════════════════════════════════════════════════╝
+let lastChartRefresh=0;
+function updateUI(){
+  refreshStats();
+  const now=Date.now();
+  if(!SIM.autoTimer||now-lastChartRefresh>600){
+    lastChartRefresh=now;
+    refreshPyramid();
+    refreshMort();
+    refreshPrev();
+    if(!SIM.autoTimer) renderTable();
+  }
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  RESET                                               ║
+// ╚══════════════════════════════════════════════════════╝
+function resetSim(){
+  if(SIM.autoTimer) toggleAuto();
+  R=mkRNG(20240101); pid=0;
+  SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
+  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}};
+  SIM.covidLeft=0;
+  SIM.int={polypill:false,intensiveDM:false,smokingCess:false,cancer:false,covid:false,deprivation:false,nice:false};
+  SIM.tablePage=0;
+  document.getElementById('tbl-running-notice').style.display='none';
+
+  // Reset intervention cards
+  for(const d of INT_DEFS){
+    document.getElementById('ic-'+d.key).classList.remove('on');
+    document.getElementById('is-'+d.key).textContent='○ Off';
+  }
+
+  updateDemoSliders();
+  SIM.patients=generatePop(10000,SIM.cfg);
+  recordTrend(); updateUI(); refreshPyramid(); refreshPrev();
+  renderSavedScenarios();
+  renderTable();
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  GENERATE POPULATION                                 ║
+// ╚══════════════════════════════════════════════════════╝
+function generatePop(n, cfg){
+  const pts=[];
+  for(let i=0;i<n;i++) pts.push(makePatient(undefined,cfg));
+  return pts;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  KEYBOARD SHORTCUTS                                  ║
+// ╚══════════════════════════════════════════════════════╝
+document.addEventListener('keydown',e=>{
+  if(document.getElementById('modal-bg').classList.contains('open')){ if(e.key==='Escape') closeModal(); return; }
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if(e.key===' '){e.preventDefault();stepMonths(1);}
+  if(e.key==='y'||e.key==='Y') stepMonths(12);
+  if(e.key==='a'||e.key==='A') toggleAuto();
+});
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  INIT                                                ║
+// ╚══════════════════════════════════════════════════════╝
+(function init(){
+  updateDemoSliders();
+  buildIntGrid();
+  initCharts();
+  SIM.patients=generatePop(10000,SIM.cfg);
+  recordTrend();
+  renderSavedScenarios();
+  refreshPyramid();
+  refreshPrev();
+  refreshMort();
+  updateUI();
+  renderTable();
+})();
+</script>
+</body>
+</html>
