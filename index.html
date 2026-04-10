@@ -267,6 +267,8 @@
       <button class="btn-gray"  onclick="resetSim()">↺ Reset</button>
       <span class="speed-wrap">Speed: <input type="range" id="speed" min="1" max="20" value="4"> <span id="spv">4×</span></span>
       <span class="kbd"><kbd>Space</kbd>1mo &nbsp;<kbd>Y</kbd>1yr &nbsp;<kbd>A</kbd>auto &nbsp;<kbd>Esc</kbd>modal</span>
+      <button class="btn-green" onclick="downloadCSV(false)" title="Download all 10,000 patients as CSV">📥 Export All CSV</button>
+      <button class="btn-orange btn-sm" onclick="downloadCSV(true)" title="Download only deceased patients">💀 Deaths Only</button>
     </div>
   </div>
 
@@ -1480,6 +1482,100 @@ function generatePop(n, cfg){
   const pts=[];
   for(let i=0;i<n;i++) pts.push(makePatient(undefined,cfg));
   return pts;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  CSV EXPORT                                          ║
+// ╚══════════════════════════════════════════════════════╝
+function downloadCSV(deathsOnly) {
+  const simMo = SIM.month;
+  const simYr = (simMo / 12).toFixed(1);
+
+  // Column headers — mirrors original synthetic_patients CSV + extras
+  const headers = [
+    'patient_idx','nhs_number','first_name','last_name',
+    'age_at_baseline','sex','ethnicity','is_pakistani',
+    'smoking','ex_smoking','deprivation','bmi','sbp','cholesterol','qrisk',
+    'medications_count','alive','months_simulated','death_month','death_year',
+    // Condition flags (1/0)
+    'hypertension','diabetes','cad','heart_failure','af','ckd','copd',
+    'asthma','depression','cancer','osteoporosis','hypothyroidism',
+    'stroke','dementia','long_covid',
+    // Simulation context
+    'sim_month','sim_year','interventions_active'
+  ];
+
+  const intActive = Object.entries(SIM.int)
+    .filter(([,v])=>v).map(([k])=>k).join('|') || 'none';
+
+  const rows = [];
+  const pts = deathsOnly
+    ? SIM.patients.filter(p => !p.alive)
+    : SIM.patients;
+
+  for (const p of pts) {
+    const deathMo  = p.alive ? '' : p.deathMonth;
+    const deathYr  = p.alive ? '' : Math.floor(p.deathMonth / 12);
+    const monthsLived = p.alive ? simMo : p.deathMonth;
+
+    // NHS number: 10-digit formatted string stored as id (zero-padded for looks)
+    const nhsNum = String(p.id).padStart(10, '0').replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3');
+
+    const flag = c => p.cond.has(c) ? 1 : 0;
+
+    rows.push([
+      p.id,
+      nhsNum,
+      `"${p.fname}"`,
+      `"${p.lname}"`,
+      p.age,
+      p.sex,
+      `"${p.eth}"`,
+      p.isPaki ? 1 : 0,
+      p.smoker ? 1 : 0,
+      p.exSmoker ? 1 : 0,
+      p.depScore,
+      p.bmi,
+      p.sbp,
+      p.chol,
+      p.qrisk,
+      p.meds.size,
+      p.alive ? 1 : 0,
+      monthsLived,
+      deathMo,
+      deathYr,
+      flag('HTN'),
+      flag('T2DM'),
+      flag('CAD'),
+      flag('HF'),
+      flag('AF'),
+      flag('CKD'),
+      flag('COPD'),
+      flag('Asthma'),
+      flag('Depression'),
+      flag('Cancer'),
+      flag('Osteoporosis'),
+      flag('Hypothyroidism'),
+      flag('Stroke'),
+      flag('Dementia'),
+      flag('Long COVID'),
+      simMo,
+      simYr,
+      `"${intActive}"`
+    ].join(','));
+  }
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const label = deathsOnly ? 'deaths' : 'all-patients';
+  a.href     = url;
+  a.download = `harrow-gp-sim_${label}_mo${simMo}_${intActive.replace(/\|/g,'-')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ╔══════════════════════════════════════════════════════╗
