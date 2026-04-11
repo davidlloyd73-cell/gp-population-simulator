@@ -32,6 +32,8 @@ The simulator runs a **monthly tick engine** across a synthetic patient populati
 
 Any combination of interventions can be active simultaneously, and **scenario capture** lets you overlay mortality curves for direct comparison.
 
+**Uptake and adherence sliders** on each clinical intervention card let you set realistic real-world effectiveness — e.g. polypill at 80% uptake / 75% adherence — rather than assuming 100% compliance. Every effect scales proportionally.
+
 ---
 
 ## Demographics
@@ -52,8 +54,16 @@ Changes take effect on population rebuild.
 ## Charts
 
 - **Population pyramid** — live age/sex distribution
-- **Cumulative mortality curve** — with scenario overlay for intervention comparison
+- **Cumulative mortality curve** — with scenario overlay for intervention comparison; shaded Monte Carlo confidence band when MC mode is active
 - **Condition prevalence trends** — tracked over simulated time
+
+---
+
+## Monte Carlo confidence funnel
+
+Click **🎲 Monte Carlo (×20)** to run 20 full simulations with different random seeds. The mortality chart gains a shaded green band showing the **10th–90th percentile range** of outcomes, with a dashed median line. This teaches clinicians that population health results are distributions, not single predictions — and shows how much of the outcome variance is driven by chance vs. intervention.
+
+Runs asynchronously with a progress bar; takes roughly 30–60 seconds depending on your device.
 
 ---
 
@@ -93,9 +103,10 @@ Exported files are automatically named to include the simulation month and activ
 
 ## Technical notes
 
-- Single HTML file — no server, no dependencies, no installation
+- Single HTML file (~90 KB) — no server, no dependencies, no installation
 - Seeded Mulberry32 RNG for reproducible results
-- Chart.js 4.4.1 for visualisation
+- Monte Carlo engine runs 20 × 60-month simulations asynchronously in the browser
+- Chart.js 4.4.1 for visualisation including shaded confidence bands
 - Runs entirely in the browser; no data leaves your machine
 
 ---
