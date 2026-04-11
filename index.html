@@ -113,6 +113,14 @@
     .int-slider-row input[type=range] { flex:1; height:3px; cursor:pointer; accent-color:var(--accent-color,#3182ce); }
     .int-slider-val { font-size:9px; font-weight:700; color:var(--accent-color,#3182ce); min-width:26px; text-align:right; }
 
+    /* ── Cost KPI tiles ── */
+    .cost-kpi { background:#f7fafc; border-radius:8px; padding:10px 13px; text-align:center; }
+    .cost-kpi-val { font-size:22px; font-weight:800; line-height:1.2; }
+    .cost-kpi-lbl { font-size:10px; color:#718096; margin-top:2px; }
+    .cost-row-net-pos { color:#276749; font-weight:700; }
+    .cost-row-net-neg { color:#c53030; font-weight:700; }
+    .cost-total-row td { border-top:2px solid #e2e8f0; font-weight:700; background:#f7fafc; }
+
     /* ── Monte Carlo progress ── */
     #mc-progress { display:none; margin-top:8px; }
     #mc-progress-text { font-size:10px; color:var(--muted); margin-bottom:4px; }
@@ -355,6 +363,33 @@
     <div id="int-grid">
       <!-- Populated by JS -->
     </div>
+  </div>
+
+  <!-- Cost & Value Analysis -->
+  <div class="card" id="cost-card" style="display:none">
+    <div class="card-title">💰 Cost &amp; Value Analysis — active interventions only <span style="font-weight:400;text-transform:none;font-size:10px;color:#a0aec0">(NHS reference costs 2023/24; indicative only)</span></div>
+    <div style="overflow-x:auto">
+      <table id="cost-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr id="cost-thead" style="background:#f7fafc">
+            <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Intervention</th>
+            <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Patients&nbsp;treated</th>
+            <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Est.&nbsp;annual&nbsp;cost</th>
+            <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Est.&nbsp;admissions&nbsp;avoided/yr</th>
+            <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Est.&nbsp;savings/yr</th>
+            <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#718096;border-bottom:2px solid #e2e8f0">Net&nbsp;position</th>
+          </tr>
+        </thead>
+        <tbody id="cost-tbody"></tbody>
+        <tfoot id="cost-tfoot"></tfoot>
+      </table>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px" id="cost-kpis"></div>
+    <p style="font-size:10px;color:#a0aec0;margin-top:10px;line-height:1.6">
+      ⚠️ Indicative estimates only. Drug costs: BNF/NHS Drug Tariff 2024. Admission costs: NHS National Schedule of NHS Costs 2023/24.
+      Avoided admissions calculated from published trial effect sizes scaled by current uptake × adherence settings.
+      No allowance for GP/pharmacist time, monitoring, or adverse effects. Not for commissioning decisions without validated health economic modelling.
+    </p>
   </div>
 
   <!-- Scenario Capture -->
@@ -939,6 +974,7 @@ function eff(key) {
 function updateAdh(key, prop, val) {
   SIM.adh[key][prop] = parseInt(val);
   document.getElementById(`adh-${key}-${prop}`).textContent = val+'%';
+  refreshCosts();
 }
 
 const TREND_CONDS  = ['HTN','T2DM','CAD','HF','AF','CKD','COPD','Asthma','Depression','Cancer','Dementia'];
@@ -1203,6 +1239,7 @@ function toggleInt(key){
   } else {
     card.classList.remove('on'); stat.textContent='○ Off';
   }
+  refreshCosts();
   updateUI();
 }
 
@@ -1658,6 +1695,7 @@ function updateUI(){
     refreshPyramid();
     refreshMort();
     refreshPrev();
+    refreshCosts();
     if(!SIM.autoTimer) renderTable();
   }
 }
@@ -1695,6 +1733,173 @@ function generatePop(n, cfg){
   const pts=[];
   for(let i=0;i<n;i++) pts.push(makePatient(undefined,cfg));
   return pts;
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  COST & VALUE ANALYSIS                               ║
+// ╚══════════════════════════════════════════════════════╝
+// NHS reference costs (2023/24) and drug tariff prices
+const COST_REF = {
+  // Admission costs (HRG-based, NHS National Schedule 2023/24)
+  MI_ADM:     5500,   // Acute MI — HRG EB07Z
+  STROKE_ADM: 7000,   // Stroke — HRG AA29Z
+  HF_ADM:     3400,   // Heart failure — HRG EB03Z
+  DM_ADM:     2800,   // Diabetic complication — HRG PD01Z
+  COPD_ADM:   3200,   // COPD exacerbation — HRG DZ65Z
+  // Annual drug/programme costs per treated patient
+  POLYPILL_PA: 165,   // Generic statin £20 + ACEI £30 + aspirin £5 + monitoring £110
+  SGLT2I_PA:   450,   // Dapagliflozin/empagliflozin (NHS indicative price)
+  GLP1_PA:    1200,   // Semaglutide 0.5mg (NHS indicative price)
+  CESSATION:   300,   // NHS Stop Smoking Service per successful quitter
+};
+
+// Annual event rates in treated subgroups (from published literature)
+const RATES = {
+  MI_IN_HIGHQRISK:    0.012, // ~1.2%/yr MI rate in QRISK>10 population
+  STROKE_IN_HIGHQRISK:0.008, // ~0.8%/yr stroke rate
+  HF_IN_T2DM:         0.004, // ~0.4%/yr HF admission rate in T2DM
+  DM_ADM_RATE:        0.025, // ~2.5%/yr diabetic complication admission in T2DM
+  COPD_IN_EXSMOKER:   0.015, // ~1.5%/yr COPD admission avoided per quitter
+};
+
+function fmt(n, prefix='£'){
+  if(n>=1e6)  return prefix+(n/1e6).toFixed(2)+'m';
+  if(n>=1000) return prefix+(n/1000).toFixed(0)+'k';
+  return prefix+Math.round(n).toLocaleString();
+}
+
+function refreshCosts(){
+  const anyActive = Object.values(SIM.int).some(v=>v);
+  document.getElementById('cost-card').style.display = anyActive ? '' : 'none';
+  if(!anyActive) return;
+
+  const alive = SIM.patients.filter(p=>p.alive);
+  const rows  = [];
+  let totalCost=0, totalSave=0, totalAdm=0, totalTreated=0;
+
+  // ── Polypill ─────────────────────────────────────────────────────────
+  if(SIM.int.polypill){
+    const eligible  = alive.filter(p=>p.qrisk>10).length;
+    const treated   = Math.round(eligible * SIM.adh.polypill.uptake/100);
+    const e         = eff('polypill');
+    const costPA    = treated * COST_REF.POLYPILL_PA;
+    const miAvoid   = treated * RATES.MI_IN_HIGHQRISK    * 0.25 * e;
+    const strAvoid  = treated * RATES.STROKE_IN_HIGHQRISK * 0.20 * e;
+    const admAvoid  = miAvoid + strAvoid;
+    const savePA    = miAvoid * COST_REF.MI_ADM + strAvoid * COST_REF.STROKE_ADM;
+    rows.push({ name:'💊 Polypill', treated, eligible, costPA, admAvoid, savePA,
+                basis:`${eligible.toLocaleString()} pts QRISK>10; MI −25%, stroke −20%` });
+    totalCost+=costPA; totalSave+=savePA; totalAdm+=admAvoid; totalTreated+=treated;
+  }
+
+  // ── Intensive DM ─────────────────────────────────────────────────────
+  if(SIM.int.intensiveDM){
+    const dmPts     = alive.filter(p=>p.cond.has('T2DM'));
+    const eligible  = dmPts.length;
+    const treated   = Math.round(eligible * SIM.adh.intensiveDM.uptake/100);
+    const e         = eff('intensiveDM');
+    const glp1Elig  = Math.round(dmPts.filter(p=>p.bmi>=27).length * SIM.adh.intensiveDM.uptake/100 * 0.4);
+    const costPA    = treated * COST_REF.SGLT2I_PA + glp1Elig * COST_REF.GLP1_PA;
+    const hfAvoid   = treated * RATES.HF_IN_T2DM   * 0.50 * e;
+    const dmAvoid   = treated * RATES.DM_ADM_RATE  * 0.22 * e;
+    const admAvoid  = hfAvoid + dmAvoid;
+    const savePA    = hfAvoid * COST_REF.HF_ADM + dmAvoid * COST_REF.DM_ADM;
+    rows.push({ name:'🩺 Intensive DM', treated, eligible, costPA, admAvoid, savePA,
+                basis:`${eligible.toLocaleString()} T2DM pts; SGLT2i + GLP-1 (BMI>27); HF −50%, DM adm −22%` });
+    totalCost+=costPA; totalSave+=savePA; totalAdm+=admAvoid; totalTreated+=treated;
+  }
+
+  // ── Smoking cessation ─────────────────────────────────────────────────
+  if(SIM.int.smokingCess){
+    const smokers   = alive.filter(p=>p.smoker).length;
+    const eligible  = smokers;
+    // Programme-supported quit rate: 3%/mo × 12 × uptake
+    const quittersPA= Math.round(smokers * SIM.adh.smokingCess.uptake/100 * 0.03 * 12);
+    const e         = eff('smokingCess');
+    const costPA    = quittersPA * COST_REF.CESSATION;
+    const copdAvoid = quittersPA * RATES.COPD_IN_EXSMOKER * e;
+    const admAvoid  = copdAvoid;
+    const savePA    = copdAvoid * COST_REF.COPD_ADM;
+    rows.push({ name:'🚭 Smoking Cessation', treated:quittersPA, eligible, costPA, admAvoid, savePA,
+                basis:`${smokers.toLocaleString()} current smokers; est. ${quittersPA} successful quitters/yr` });
+    totalCost+=costPA; totalSave+=savePA; totalAdm+=admAvoid; totalTreated+=quittersPA;
+  }
+
+  // ── Perfect NICE ─────────────────────────────────────────────────────
+  if(SIM.int.nice){
+    const undertreated = alive.filter(p=>p.qrisk>10||p.cond.has('HTN')||p.cond.has('T2DM')).length;
+    const eligible     = undertreated;
+    const treated      = Math.round(eligible * SIM.adh.nice.uptake/100);
+    const e            = eff('nice');
+    // Pharmacist/GP structured medication review: ~£80/pt/yr
+    const costPA       = treated * 80;
+    const admAvoid     = treated * 0.005 * e; // 0.5% admission avoided per optimised patient
+    const savePA       = admAvoid * 4200;      // blended reference cost
+    rows.push({ name:'✅ Perfect NICE', treated, eligible, costPA, admAvoid, savePA,
+                basis:`${eligible.toLocaleString()} pts needing optimisation; structured med review £80/pt` });
+    totalCost+=costPA; totalSave+=savePA; totalAdm+=admAvoid; totalTreated+=treated;
+  }
+
+  // ── Render table ──────────────────────────────────────────────────────
+  const td = (txt, cls='') =>
+    `<td style="padding:6px 10px;border-bottom:1px solid #f7fafc;text-align:right${cls?';'+cls:''}">${txt}</td>`;
+  const tdl= (txt) =>
+    `<td style="padding:6px 10px;border-bottom:1px solid #f7fafc"><div style="font-weight:600">${txt}</div></td>`;
+
+  document.getElementById('cost-tbody').innerHTML = rows.map(r=>{
+    const net    = r.savePA - r.costPA;
+    const netCls = net>=0 ? 'color:#276749;font-weight:700' : 'color:#c53030;font-weight:700';
+    const roi    = r.costPA>0 ? ((r.savePA/r.costPA-1)*100).toFixed(0)+'%' : '—';
+    return `<tr title="${r.basis}">
+      ${tdl(r.name)}
+      ${td(`${r.treated.toLocaleString()} <span style="color:#a0aec0;font-size:10px">/ ${r.eligible.toLocaleString()} eligible</span>`)}
+      ${td(fmt(r.costPA))}
+      ${td(r.admAvoid>=0.1 ? r.admAvoid.toFixed(1) : '<1')}
+      ${td(`<span style="color:#276749">${fmt(r.savePA)}</span>`)}
+      ${td(`<span style="${netCls}">${net>=0?'+':''}${fmt(net)}</span> <span style="color:#a0aec0;font-size:10px">(ROI ${roi})</span>`)}
+    </tr>`;
+  }).join('');
+
+  // Total row
+  const totalNet = totalSave - totalCost;
+  const totalNetCls = totalNet>=0 ? 'color:#276749' : 'color:#c53030';
+  document.getElementById('cost-tfoot').innerHTML = `<tr class="cost-total-row">
+    <td style="padding:7px 10px;font-weight:700">Total (all active)</td>
+    ${td(`${totalTreated.toLocaleString()} patients`,'font-weight:700')}
+    ${td(fmt(totalCost),'font-weight:700')}
+    ${td(totalAdm.toFixed(1),'font-weight:700')}
+    ${td(`<span style="color:#276749;font-weight:700">${fmt(totalSave)}</span>`)}
+    ${td(`<span style="${totalNetCls};font-weight:700">${totalNet>=0?'+':''}${fmt(totalNet)}</span>`)}
+  </tr>`;
+
+  // KPI tiles
+  const kpiColor = totalNet>=0 ? '#276749' : '#c53030';
+  const cpd = totalAdm>0 ? fmt(totalCost/totalAdm) : '—';
+  document.getElementById('cost-kpis').innerHTML = `
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:#2b6cb0">${totalTreated.toLocaleString()}</div>
+      <div class="cost-kpi-lbl">Patients receiving interventions</div>
+    </div>
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:#c53030">${fmt(totalCost)}</div>
+      <div class="cost-kpi-lbl">Total annual cost</div>
+    </div>
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:#276749">${fmt(totalSave)}</div>
+      <div class="cost-kpi-lbl">Est. annual savings (avoided admissions)</div>
+    </div>
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:${kpiColor}">${totalNet>=0?'+':''}${fmt(totalNet)}</div>
+      <div class="cost-kpi-lbl">Net annual position</div>
+    </div>
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:#744210">${cpd}</div>
+      <div class="cost-kpi-lbl">Cost per admission avoided</div>
+    </div>
+    <div class="cost-kpi">
+      <div class="cost-kpi-val" style="color:#553c9a">${totalAdm.toFixed(1)}</div>
+      <div class="cost-kpi-lbl">Est. admissions avoided per year</div>
+    </div>`;
 }
 
 // ╔══════════════════════════════════════════════════════╗
