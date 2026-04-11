@@ -106,6 +106,20 @@
     .int-card.on .int-card-status { color:var(--accent-color,#3182ce); }
     .int-card:not(.on) .int-card-status { color:#a0aec0; }
 
+    /* ── Adherence sliders inside int-cards ── */
+    .int-sliders { margin-top:7px; padding-top:7px; border-top:1px solid rgba(0,0,0,0.07); }
+    .int-slider-row { display:flex; align-items:center; gap:5px; margin-bottom:4px; }
+    .int-slider-row span.isl { font-size:9px; color:var(--muted); min-width:54px; }
+    .int-slider-row input[type=range] { flex:1; height:3px; cursor:pointer; accent-color:var(--accent-color,#3182ce); }
+    .int-slider-val { font-size:9px; font-weight:700; color:var(--accent-color,#3182ce); min-width:26px; text-align:right; }
+
+    /* ── Monte Carlo progress ── */
+    #mc-progress { display:none; margin-top:8px; }
+    #mc-progress-text { font-size:10px; color:var(--muted); margin-bottom:4px; }
+    #mc-progress-track { background:#e2e8f0; border-radius:99px; height:6px; overflow:hidden; }
+    #mc-progress-fill { background:#38a169; height:100%; border-radius:99px; transition:width 0.2s; width:0%; }
+    .mc-legend { font-size:10px; color:var(--muted); margin-top:4px; }
+
     /* ── Scenario Capture ── */
     #scenario-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     #scenario-name { padding:5px 9px; border:1px solid var(--border); border-radius:6px; font-size:12px; width:200px; }
@@ -269,7 +283,15 @@
       <span class="kbd"><kbd>Space</kbd>1mo &nbsp;<kbd>Y</kbd>1yr &nbsp;<kbd>A</kbd>auto &nbsp;<kbd>Esc</kbd>modal</span>
       <button class="btn-green" onclick="downloadCSV(false)" title="Download all 10,000 patients as CSV">📥 Export All CSV</button>
       <button class="btn-orange btn-sm" onclick="downloadCSV(true)" title="Download only deceased patients">💀 Deaths Only</button>
+      <button class="btn-green" id="btn-mc" onclick="runMonteCarlo()" title="Run 20 simulations to show confidence range">🎲 Monte Carlo (×20)</button>
     </div>
+  </div>
+
+  <!-- Monte Carlo Progress -->
+  <div class="card" id="mc-progress">
+    <div id="mc-progress-text">Preparing simulations…</div>
+    <div id="mc-progress-track"><div id="mc-progress-fill"></div></div>
+    <div class="mc-legend">Shaded band on mortality chart shows 10th–90th percentile range across 20 random seeds with current interventions active.</div>
   </div>
 
   <!-- Demographics -->
@@ -808,11 +830,11 @@ function annualMort(p) {
   if(p.smoker)               r*=1.22;
   if(p.exSmoker)             r*=1.08;
 
-  // Intervention reductions
-  if(SIM.int.intensiveDM && p.cond.has('T2DM')) r*=0.78; // SGLT2i/GLP-1 CV benefit
-  if(SIM.int.smokingCess && p.exSmoker)          r*=0.95; // programme benefit
-  if(SIM.int.polypill && p.qrisk>10 && hasC(p.meds,'STAT')) r*=0.90; // statin mortality benefit
-  if(SIM.int.nice && hasC(p.meds,'STAT') && p.qrisk>10)     r*=0.92;
+  // Intervention reductions — scaled by uptake × adherence
+  { const e=eff('intensiveDM'); if(e>0 && p.cond.has('T2DM'))                       r*=(1-0.22*e); }
+  { const e=eff('smokingCess'); if(e>0 && p.exSmoker)                                r*=(1-0.05*e); }
+  { const e=eff('polypill');    if(e>0 && p.qrisk>10 && hasC(p.meds,'STAT'))         r*=(1-0.10*e); }
+  { const e=eff('nice');        if(e>0 && hasC(p.meds,'STAT') && p.qrisk>10)         r*=(1-0.08*e); }
 
   // COVID spike
   if(SIM.covidLeft>0) {
@@ -834,12 +856,12 @@ function incProbs(p) {
   const dep=SIM.int.deprivation;
   const intDM=SIM.int.intensiveDM;
 
-  // Base MI multiplier: reduced if on statin (polypill/NICE) or intensive DM
+  // Base MI/stroke multipliers — scaled by uptake × adherence
   let miMult  = 1;
   let strMult = 1;
-  if(SIM.int.polypill && p.qrisk>10 && hasC(p.meds,'STAT')) { miMult*=0.75; strMult*=0.80; }
-  if(SIM.int.nice && hasC(p.meds,'STAT') && p.qrisk>10)      { miMult*=0.88; strMult*=0.88; }
-  if(intDM && p.cond.has('T2DM')) { miMult*=0.65; strMult*=0.65; } // SGLT2i/GLP-1 CV benefit
+  { const e=eff('polypill'); if(e>0 && p.qrisk>10 && hasC(p.meds,'STAT')) { miMult*=(1-0.25*e); strMult*=(1-0.20*e); } }
+  { const e=eff('nice');     if(e>0 && hasC(p.meds,'STAT') && p.qrisk>10) { miMult*=(1-0.12*e); strMult*=(1-0.12*e); } }
+  { const e=eff('intensiveDM'); if(e>0 && p.cond.has('T2DM'))             { miMult*=(1-0.35*e); strMult*=(1-0.35*e); } }
 
   return {
     newHTN: p.cond.has('HTN') ? 0 :
@@ -855,7 +877,7 @@ function incProbs(p) {
 
     newHF: p.cond.has('HF') ? 0 :
       Math.max(0,0.003*Math.pow(Math.max(0,a-50)/20,2.0)*(p.cond.has('CAD')?2.2:1)
-                *(intDM&&p.cond.has('T2DM')?0.50:1)),  // SGLT2i halves HF incidence in DM
+                *(p.cond.has('T2DM')?(1-0.50*eff('intensiveDM')):1)),
 
     newDep: p.cond.has('Depression') ? 0 :
       0.022*(dep?1.6:1)*(a<15?0.2:1),
@@ -867,7 +889,7 @@ function incProbs(p) {
       Math.max(0,(p.cond.has('AF')?0.028:0.006)*(isBlk?1.55:1)
                *(p.cond.has('HTN')?1.4:1)*Math.max(0.5,a/60)*strMult),
 
-    CKDprog: p.cond.has('CKD') ? Math.max(0,0.065*(intDM&&p.cond.has('T2DM')?0.50:1)) : 0,
+    CKDprog: p.cond.has('CKD') ? Math.max(0,0.065*(p.cond.has('T2DM')?(1-0.50*eff('intensiveDM')):1)) : 0,
 
     newCancer: p.cond.has('Cancer') ? 0 :
       Math.max(0,0.005*Math.pow(Math.max(0,a-40)/30,1.7)),
@@ -888,15 +910,36 @@ const SIM = {
   month:0, deathsYear:0, yearBound:0, cumDeaths:0,
   mortalityCurve:[], // [{mo, cd}]
   savedScenarios:[], // [{label, color, curve:[{mo,cd}]}]
+  mcBands:[], // [{m, lo, med, hi}] — Monte Carlo percentile bands
   covidLeft:0,
   autoTimer:null,
   int:{ polypill:false, intensiveDM:false, smokingCess:false, cancer:false, covid:false, deprivation:false, nice:false },
+  // Uptake = % of eligible patients who receive the intervention
+  // Adherence = % who maintain it (scales effect size)
+  adh:{
+    polypill:    {uptake:80, adherence:75},
+    intensiveDM: {uptake:70, adherence:80},
+    smokingCess: {uptake:60, adherence:70},
+    nice:        {uptake:85, adherence:90},
+  },
   trend:{ months:[], data:{} },
   cfg:{ sa:40, blk:20, wht:35, oth:5, pakiPct:30, dep:3, smk:13, bmiOff:0 },
   tablePage:0, tablePageSize:50,
   sortKey:'id', sortAsc:true,
   filteredCache:[]
 };
+
+// Effective intervention strength: uptake × adherence (0–1)
+// Returns 0 if intervention is off, otherwise the combined effectiveness fraction
+function eff(key) {
+  if(!SIM.int[key]) return 0;
+  const a = SIM.adh[key];
+  return a ? (a.uptake/100) * (a.adherence/100) : 1.0;
+}
+function updateAdh(key, prop, val) {
+  SIM.adh[key][prop] = parseInt(val);
+  document.getElementById(`adh-${key}-${prop}`).textContent = val+'%';
+}
 
 const TREND_CONDS  = ['HTN','T2DM','CAD','HF','AF','CKD','COPD','Asthma','Depression','Cancer','Dementia'];
 const TREND_COLORS = ['#e53e3e','#d69e2e','#c53030','#9f7aea','#3182ce','#2b6cb0',
@@ -1097,6 +1140,29 @@ const INT_DEFS=[
    col:'#553c9a',bg:'#f3e8ff'}
 ];
 
+const ADH_KEYS = new Set(['polypill','intensiveDM','smokingCess','nice']);
+
+function adhSliders(key, col) {
+  if(!ADH_KEYS.has(key)) return '';
+  const a = SIM.adh[key];
+  return `<div class="int-sliders" onclick="event.stopPropagation()">
+    <div class="int-slider-row">
+      <span class="isl">Uptake</span>
+      <input type="range" min="10" max="100" value="${a.uptake}"
+             style="accent-color:${col}"
+             oninput="updateAdh('${key}','uptake',this.value)">
+      <span class="int-slider-val" id="adh-${key}-uptake">${a.uptake}%</span>
+    </div>
+    <div class="int-slider-row">
+      <span class="isl">Adherence</span>
+      <input type="range" min="10" max="100" value="${a.adherence}"
+             style="accent-color:${col}"
+             oninput="updateAdh('${key}','adherence',this.value)">
+      <span class="int-slider-val" id="adh-${key}-adherence">${a.adherence}%</span>
+    </div>
+  </div>`;
+}
+
 function buildIntGrid(){
   const grid=document.getElementById('int-grid');
   grid.innerHTML=INT_DEFS.map(d=>`
@@ -1107,6 +1173,7 @@ function buildIntGrid(){
       <div class="int-card-name">${d.name}</div>
       <div class="int-card-desc">${d.desc}</div>
       <div class="int-card-status" id="is-${d.key}">○ Off</div>
+      ${adhSliders(d.key, d.col)}
     </div>`).join('');
 }
 
@@ -1250,11 +1317,38 @@ function refreshPyramid(){
 }
 
 function refreshMort(){
-  // Current run
   const labels = SIM.mortalityCurve.map(d=>d.mo);
   const datasets=[];
 
-  // Saved scenarios (dashed)
+  // ── Monte Carlo bands (drawn first, behind everything) ──
+  if(SIM.mcBands.length>0){
+    const mcLabels = SIM.mcBands.map(b=>b.m);
+    const lo  = SIM.mcBands.map(b=>b.lo);
+    const hi  = SIM.mcBands.map(b=>b.hi);
+    const med = SIM.mcBands.map(b=>b.med);
+    // invisible lower bound anchor for fill
+    datasets.push({
+      label:'_mc_lo', data:lo,
+      borderColor:'transparent', backgroundColor:'transparent',
+      pointRadius:0, tension:0.3, fill:false
+    });
+    // upper bound — fills back to _mc_lo
+    datasets.push({
+      label:'MC 10–90th %ile', data:hi,
+      borderColor:'rgba(56,161,105,0.25)',
+      backgroundColor:'rgba(56,161,105,0.12)',
+      pointRadius:0, tension:0.3, fill:'-1'
+    });
+    // median line
+    datasets.push({
+      label:'MC median', data:med,
+      borderColor:'rgba(56,161,105,0.65)',
+      backgroundColor:'transparent',
+      borderWidth:1.5, borderDash:[3,3], pointRadius:0, tension:0.3
+    });
+  }
+
+  // ── Saved scenarios (dashed) ──
   for(const s of SIM.savedScenarios){
     datasets.push({
       label:s.label, data:s.curve.map(d=>d.cd),
@@ -1262,7 +1356,8 @@ function refreshMort(){
       borderWidth:1.8, borderDash:[5,3], pointRadius:0, tension:0.3
     });
   }
-  // Current run (solid white/dark)
+
+  // ── Current run (solid dark) ──
   if(SIM.mortalityCurve.length>0){
     datasets.push({
       label:'Current run', data:SIM.mortalityCurve.map(d=>d.cd),
@@ -1271,13 +1366,131 @@ function refreshMort(){
     });
   }
 
-  C_MORT.data.labels=labels;
+  // Merge MC and run labels
+  const allLabels = SIM.mcBands.length>0
+    ? Array.from({length:Math.max(SIM.mcBands.length, labels.length)},(_,i)=>i)
+    : labels;
+
+  C_MORT.data.labels=allLabels;
   C_MORT.data.datasets=datasets;
+  C_MORT.options.plugins.legend.labels.filter = item => !item.text.startsWith('_');
   C_MORT.options.scales.x.ticks.callback=(v,i)=>{
-    const m=SIM.mortalityCurve[i]?.mo;
-    return m&&m%12===0?`Yr${m/12|0}`:'';
+    const mo = (SIM.mortalityCurve[i]?.mo) ?? i;
+    return mo && mo%12===0 ? `Yr${mo/12|0}` : '';
   };
   C_MORT.update();
+}
+
+// ╔══════════════════════════════════════════════════════╗
+// ║  MONTE CARLO ENGINE                                  ║
+// ╚══════════════════════════════════════════════════════╝
+const MC_RUNS    = 20;
+const MC_MONTHS  = 60;
+
+function simFast(seed) {
+  // Fresh RNG for this seed — save/restore global R
+  const savedR = R;
+  const savedPid = pid;
+  R = mkRNG(seed);
+  pid = 8000000 + seed; // well away from main population IDs
+
+  // Generate fresh 10k population with current cfg
+  const pts = [];
+  for(let i=0;i<10000;i++) pts.push(makePatient(undefined, SIM.cfg));
+
+  let cumDeaths = 0;
+  const curve = [0]; // month 0
+  let covidLeft = SIM.int.covid ? 3 : 0;
+
+  for(let m=1; m<=MC_MONTHS; m++) {
+    if(covidLeft>0) covidLeft--;
+    const savedCL = SIM.covidLeft;
+    SIM.covidLeft = covidLeft;
+
+    let newDeaths = 0;
+    for(const p of pts) {
+      if(!p.alive) continue;
+      p.ageMonths++;
+      p.age = Math.floor(p.ageMonths/12);
+
+      const am = annualMort(p);
+      const mm = 1 - Math.pow(1-am, 1/12);
+      if(R.rand()<mm){ p.alive=false; cumDeaths++; newDeaths++; continue; }
+
+      if(SIM.int.smokingCess && p.smoker && R.rand()<0.03){ p.smoker=false; p.exSmoker=true; }
+      if(SIM.int.deprivation && R.rand()<0.02) p.bmi=Math.min(55,p.bmi+0.2);
+      if(covidLeft>0 && R.rand()<0.022) p.cond.add('Long COVID');
+
+      // Incident conditions (fast — no event logging)
+      const ip = incProbs(p);
+      for(const [k,ann] of Object.entries(ip)){
+        if(ann<=0||R.rand()>=ann/12) continue;
+        switch(k){
+          case 'newHTN':    p.cond.add('HTN'); break;
+          case 'newDM':     p.cond.add('T2DM'); break;
+          case 'newAF':     p.cond.add('AF'); break;
+          case 'newHF':     p.cond.add('HF'); break;
+          case 'newDep':    p.cond.add('Depression'); break;
+          case 'MI':        p.cond.add('CAD'); break;
+          case 'stroke':    p.cond.add('Stroke'); break;
+          case 'newCancer': p.cond.add('Cancer'); break;
+          case 'newCOPD':   p.cond.add('COPD'); break;
+          case 'newDem':    p.cond.add('Dementia'); break;
+        }
+      }
+      // Recalculate QRISK every 6 months only (speed)
+      if(m%6===0) p.qrisk = calcQRISK(p);
+      if(SIM.int.nice && m%6===0) applyNICE(p);
+    }
+
+    SIM.covidLeft = savedCL;
+    // Replacement patients (needed for accurate long-run mortality)
+    for(let i=0;i<newDeaths;i++) pts.push(makePatient(R.int(18,50),SIM.cfg));
+    curve.push(cumDeaths);
+  }
+
+  R = savedR;
+  pid = savedPid;
+  return curve;
+}
+
+function runMonteCarlo(){
+  if(SIM.autoTimer){ alert('Please pause auto-run before running Monte Carlo.'); return; }
+  const btn = document.getElementById('btn-mc');
+  btn.disabled=true; btn.textContent='⏳ Running…';
+  document.getElementById('mc-progress').style.display='block';
+
+  const allCurves=[];
+  let seedIdx=0;
+
+  function next(){
+    if(seedIdx>=MC_RUNS){
+      // Compute percentiles at each month
+      SIM.mcBands=[];
+      for(let m=0; m<=MC_MONTHS; m++){
+        const vals=allCurves.map(c=>c[m]??c[c.length-1]).sort((a,b)=>a-b);
+        const n=vals.length;
+        SIM.mcBands.push({
+          m,
+          lo:  vals[Math.floor(n*0.10)],
+          med: vals[Math.floor(n*0.50)],
+          hi:  vals[Math.floor(n*0.90)]
+        });
+      }
+      refreshMort();
+      btn.disabled=false; btn.textContent='🎲 Monte Carlo (×20)';
+      document.getElementById('mc-progress').style.display='none';
+      return;
+    }
+    document.getElementById('mc-progress-fill').style.width=`${(seedIdx/MC_RUNS*100).toFixed(0)}%`;
+    document.getElementById('mc-progress-text').textContent=
+      `Running simulation ${seedIdx+1} of ${MC_RUNS} — please wait…`;
+    const seed = 20240101 + seedIdx * 104729; // well-spaced prime-step seeds
+    allCurves.push(simFast(seed));
+    seedIdx++;
+    setTimeout(next,0); // yield to browser between each run
+  }
+  setTimeout(next,0);
 }
 
 function refreshPrev(){
@@ -1456,7 +1669,7 @@ function resetSim(){
   if(SIM.autoTimer) toggleAuto();
   R=mkRNG(20240101); pid=0;
   SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
-  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}};
+  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}}; SIM.mcBands=[];
   SIM.covidLeft=0;
   SIM.int={polypill:false,intensiveDM:false,smokingCess:false,cancer:false,covid:false,deprivation:false,nice:false};
   SIM.tablePage=0;
