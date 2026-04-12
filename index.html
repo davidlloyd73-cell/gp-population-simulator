@@ -420,6 +420,15 @@
     </div>
   </div>
 
+  <!-- Health Inequality Gap -->
+  <div class="card" style="margin-top:0">
+    <div class="card-title">⚖️ Health Inequality Gap
+      <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:8px">Cumulative deaths per 1,000 patients — most deprived quintile (score 4–5) vs least deprived (score 1–2)</span>
+    </div>
+    <div class="chart-wrap" style="height:220px"><canvas id="c-ineq"></canvas></div>
+    <p style="font-size:10px;color:var(--muted);margin-top:4px">Each patient has an individual deprivation score distributed around the practice mean. Adjust interventions and uptake sliders to watch the gap narrow — or widen. The shaded red area is the inequality gap. <em>Source: Marmot Review 2010; PHE Health Equity reports.</em></p>
+  </div>
+
   <!-- Patient Table -->
   <div class="card">
     <div class="card-title">Patient List (10,000)</div>
@@ -823,7 +832,9 @@ function makePatient(ageOverride, cfg) {
   let bmi  = R.norm(27+cfg.bmiOff, 5); if(eth==='South Asian') bmi+=1.5;
   bmi = Math.round(Math.max(16,Math.min(55,bmi))*10)/10;
   const chol = Math.round(Math.max(2.5,Math.min(9.5,R.norm(5.0,1.1)))*10)/10;
-  const depScore = cfg.dep; // 1-5
+  // Individual deprivation score: normally distributed around practice average, clamped 1–5
+  // Gives ~26% in 'least deprived' (1–2) and ~26% in 'most deprived' (4–5) for a dep=3 practice
+  const depScore = Math.max(1, Math.min(5, Math.round(R.norm(cfg.dep, 1.2))));
 
   const p={
     id:pid, name:fname+' '+lname, fname, lname,
@@ -996,6 +1007,9 @@ const SIM = {
   mortalityCurve:[], // [{mo, cd}]
   savedScenarios:[], // [{label, color, curve:[{mo,cd}]}]
   mcBands:[], // [{m, lo, med, hi}] — Monte Carlo percentile bands
+  ineqCurve:[], // [{mo, depRate, litRate}] — inequality gap tracking
+  ineqBase:{dep:0,lit:0}, // initial group sizes for normalisation
+  ineqCumDep:0, ineqCumLit:0, // cumulative deaths by deprivation group
   covidLeft:0,
   autoTimer:null,
   int:{ polypill:false, intensiveDM:false, smokingCess:false, cancer:false, covid:false, deprivation:false, nice:false, proactive:false },
@@ -1058,6 +1072,8 @@ function tick() {
       p.alive=false; p.deathMonth=SIM.month;
       p.events.push({mo:SIM.month,type:'death',txt:'💀 Death recorded'});
       SIM.deathsYear++; newDeaths++;
+      if(p.depScore>=4) SIM.ineqCumDep++;
+      else if(p.depScore<=2) SIM.ineqCumLit++;
       newPts.push(makePatient(R.int(18,50), SIM.cfg));
       continue;
     }
@@ -1092,6 +1108,13 @@ function tick() {
 
   SIM.cumDeaths+=newDeaths;
   SIM.mortalityCurve.push({mo:SIM.month, cd:SIM.cumDeaths});
+  if(SIM.ineqBase.dep>0 && SIM.ineqBase.lit>0) {
+    SIM.ineqCurve.push({
+      mo:  SIM.month,
+      depRate: Math.round(SIM.ineqCumDep / SIM.ineqBase.dep * 1000 * 10) / 10,
+      litRate: Math.round(SIM.ineqCumLit / SIM.ineqBase.lit * 1000 * 10) / 10
+    });
+  }
 
   for(const np of newPts) SIM.patients.push(np);
 
@@ -1195,9 +1218,11 @@ function rebuildPopulation(){
   updateDemoSliders();
   R=mkRNG(20240101); pid=0;
   SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
-  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}};
+  SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}}; SIM.mcBands=[];
+  SIM.ineqCurve=[]; SIM.ineqCumDep=0; SIM.ineqCumLit=0;
   SIM.patients=generatePop(10000,SIM.cfg);
-  recordTrend(); updateUI(); refreshPyramid(); refreshPrev();
+  calcIneqBase();
+  recordTrend(); updateUI(); refreshPyramid(); refreshPrev(); refreshIneq();
 }
 
 // ╔══════════════════════════════════════════════════════╗
@@ -1348,7 +1373,7 @@ function recordTrend(){
 // ╔══════════════════════════════════════════════════════╗
 // ║  CHARTS                                              ║
 // ╚══════════════════════════════════════════════════════╝
-let C_PYR, C_MORT, C_PREV;
+let C_PYR, C_MORT, C_PREV, C_INEQ;
 
 function initCharts(){
   const noAnim={animation:false,responsive:true,maintainAspectRatio:false};
@@ -1374,6 +1399,19 @@ function initCharts(){
         x:{ticks:{font:{size:8},maxRotation:0,callback(v,i){const m=SIM.mortalityCurve[i]?.mo;return m&&m%12===0?`Yr${m/12|0}`:'';}}},
         y:{title:{display:true,text:'Cumulative deaths',font:{size:8}},ticks:{font:{size:8}}}
       }}
+  });
+
+  // Health Inequality Gap
+  C_INEQ=new Chart(document.getElementById('c-ineq'),{
+    type:'line',
+    data:{labels:[],datasets:[]},
+    options:{...noAnim,
+      plugins:{legend:{position:'top',labels:{boxWidth:9,font:{size:9},filter:item=>!item.text.startsWith('_')}}},
+      scales:{
+        x:{ticks:{font:{size:8},maxRotation:0,callback(v,i){const m=SIM.ineqCurve[i]?.mo;return m&&m%12===0?`Yr${m/12|0}`:''}}},
+        y:{title:{display:true,text:'Deaths per 1,000',font:{size:8}},ticks:{font:{size:8}},min:0}
+      }
+    }
   });
 
   // Prevalence Trend
@@ -1584,6 +1622,43 @@ function runMonteCarlo(){
   setTimeout(next,0);
 }
 
+function calcIneqBase(){
+  SIM.ineqBase.dep = SIM.patients.filter(p=>p.depScore>=4).length;
+  SIM.ineqBase.lit = SIM.patients.filter(p=>p.depScore<=2).length;
+  SIM.ineqCumDep = 0;
+  SIM.ineqCumLit = 0;
+  SIM.ineqCurve  = [];
+}
+
+function refreshIneq(){
+  if(!C_INEQ || SIM.ineqCurve.length<2){
+    if(C_INEQ){ C_INEQ.data.labels=[]; C_INEQ.data.datasets=[]; C_INEQ.update(); }
+    return;
+  }
+  const labels  = SIM.ineqCurve.map(d=>d.mo);
+  const depData = SIM.ineqCurve.map(d=>d.depRate);
+  const litData = SIM.ineqCurve.map(d=>d.litRate);
+  // Current gap size for title annotation
+  const latest  = SIM.ineqCurve[SIM.ineqCurve.length-1];
+  const gap     = (latest.depRate - latest.litRate).toFixed(1);
+  C_INEQ.data.labels = labels;
+  C_INEQ.data.datasets = [
+    // invisible anchor at litRate for fill-between effect
+    { label:'_lit_base', data:litData,
+      borderColor:'transparent', backgroundColor:'transparent',
+      pointRadius:0, fill:false, tension:0.3 },
+    // most deprived — fills down to anchor (creates shaded gap)
+    { label:`Most deprived (dep 4–5) — gap: ${gap}/1,000`, data:depData,
+      borderColor:'#e53e3e', backgroundColor:'rgba(229,62,62,0.13)',
+      borderWidth:2.2, pointRadius:0, tension:0.3, fill:'-1' },
+    // least deprived — solid blue
+    { label:'Least deprived (dep 1–2)', data:litData,
+      borderColor:'#3182ce', backgroundColor:'transparent',
+      borderWidth:2.2, pointRadius:0, tension:0.3 },
+  ];
+  C_INEQ.update();
+}
+
 function refreshPrev(){
   if(SIM.trend.months.length<2) return;
   C_PREV.data.labels=SIM.trend.months;
@@ -1749,6 +1824,7 @@ function updateUI(){
     refreshPyramid();
     refreshMort();
     refreshPrev();
+    refreshIneq();
     refreshCosts();
     if(!SIM.autoTimer) renderTable();
   }
@@ -1762,6 +1838,7 @@ function resetSim(){
   R=mkRNG(20240101); pid=0;
   SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
   SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}}; SIM.mcBands=[];
+  SIM.ineqCurve=[]; SIM.ineqCumDep=0; SIM.ineqCumLit=0;
   SIM.covidLeft=0;
   SIM.int={polypill:false,intensiveDM:false,smokingCess:false,cancer:false,covid:false,deprivation:false,nice:false,proactive:false};
   SIM.tablePage=0;
@@ -1775,7 +1852,8 @@ function resetSim(){
 
   updateDemoSliders();
   SIM.patients=generatePop(10000,SIM.cfg);
-  recordTrend(); updateUI(); refreshPyramid(); refreshPrev();
+  calcIneqBase();
+  recordTrend(); updateUI(); refreshPyramid(); refreshPrev(); refreshIneq();
   renderSavedScenarios();
   renderTable();
 }
@@ -2091,14 +2169,24 @@ document.addEventListener('keydown',e=>{
   buildIntGrid();
   initCharts();
   SIM.patients=generatePop(10000,SIM.cfg);
+  calcIneqBase();
   recordTrend();
   renderSavedScenarios();
   refreshPyramid();
   refreshPrev();
   refreshMort();
+  refreshIneq();
   updateUI();
   renderTable();
 })();
 </script>
+
+<!-- Footer -->
+<div style="text-align:center;padding:18px 12px 24px;font-size:11px;color:#718096;border-top:1px solid #e2e8f0;margin-top:10px">
+  Harrow GP Population Health Simulator · Open source · Built with <a href="https://claude.ai" target="_blank" style="color:#3182ce">Claude AI</a> ·
+  <a href="https://github.com/davidlloyd73-cell/gp-population-simulator" target="_blank" style="color:#3182ce">GitHub</a> ·
+  <a href="https://github.com/davidlloyd73-cell/gp-population-simulator/issues/new?title=Feedback&body=How+did+you+use+this+simulator%3F+What+worked+well%3F+What+would+you+change%3F" target="_blank" style="color:#38a169;font-weight:600">📝 Share feedback / how you used this tool</a>
+  <br><span style="font-size:10px;color:#a0aec0">⚠️ Educational and research use only. Not validated for clinical decision-making or commissioning.</span>
+</div>
 </body>
 </html>
