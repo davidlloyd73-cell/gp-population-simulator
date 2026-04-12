@@ -16,7 +16,7 @@ It was built to answer a question every GP and PCN lead faces but rarely has too
 
 ## Interventions
 
-Seven interventions can be activated in any combination:
+Eight interventions can be activated in any combination:
 
 | Intervention | Evidence basis | Effect modelled |
 |---|---|---|
@@ -27,10 +27,40 @@ Seven interventions can be activated in any combination:
 | 🦠 COVID-19 wave | ONS COVID-19 mortality data | 3-month mortality spike up to 2.8× in elderly; Long COVID seeding |
 | 📉 Deprivation shock | Marmot Review; PHE Place-based Health | +50% DM incidence, +60% depression, BMI creep, +12% mortality |
 | ✅ Perfect NICE adherence | NG136 / NG28 / NG196 / NG106 / NG115 | Optimises all prescribing every simulation month |
+| 🏥 Proactive Care / Frailty Caseload | PRISMA / GRACE / NHS England frailty guidance | Risk-stratified case management for moderate/severe frailty (eFI ≥9) |
 
 ### Uptake & adherence sliders
 
-Each clinical intervention (polypill, intensive DM, smoking cessation, perfect NICE) has two sliders: **Uptake %** (what proportion of eligible patients receive it) and **Adherence %** (what proportion maintain it). Every effect scales proportionally — dropping polypill uptake from 80% to 50% immediately shows the difference in the mortality curve and the cost panel. This replaces the previous assumption of 100% compliance with something closer to reality.
+Each clinical intervention has two sliders: **Uptake %** (what proportion of eligible patients receive it) and **Adherence %** (what proportion maintain it). Every effect scales proportionally — dropping polypill uptake from 80% to 50% immediately shows the difference in the mortality curve and the cost panel. This replaces simple on/off toggles with something closer to real-world implementation.
+
+---
+
+## Frailty scoring & proactive caseload
+
+The simulator calculates a simplified **Electronic Frailty Index (eFI)** for every patient, continuously updated each simulation month:
+
+- **Age contribution** — +1 (65–74), +2 (75–84), +3 (85+)
+- **High-weight conditions** — Heart Failure, Dementia, Stroke, COPD (+2 each)
+- **Medium-weight conditions** — T2DM, CKD, AF, CAD, Cancer (+1 each)
+- **Low-weight conditions** — HTN, Depression, Osteoporosis, Hypothyroidism, Asthma, Long COVID, Obesity, Smoking, High deprivation (+0.5 each)
+- Maximum score capped at 15
+
+| eFI Score | Band |
+|---|---|
+| 0–4 | Fit |
+| 5–8 | Mild frailty |
+| 9–12 | Moderate frailty |
+| 13–15 | Severe frailty |
+
+Patients scoring ≥9 (moderate/severe frailty) qualify for the **Proactive Care caseload**. With the intervention active, these patients receive:
+
+- −20% annual mortality reduction (proactive management, medication review, falls prevention)
+- −15% MI and stroke risk (cardiovascular risk optimisation)
+- −15% new heart failure incidence (fluid management, ACEI/ARNi optimisation)
+
+Evidence basis: PRISMA European trial, Nottingham NHS GRACE programme, NHS England Ageing Well / PCN frailty DES, Marmot Review social care modelling.
+
+The **frailty_score**, **frailty_band**, and **on_proactive_caseload** columns are included in all CSV exports.
 
 ---
 
@@ -49,14 +79,30 @@ Runs asynchronously with a progress bar. Takes roughly 30–60 seconds depending
 When any clinical intervention is active, a **💰 Cost & Value Analysis** panel appears automatically. For each active intervention it calculates:
 
 - **Patients treated** — eligible population × your uptake slider
-- **Annual cost** — drug tariff / programme cost (polypill £165/pt/yr, SGLT2i £450/pt/yr, GLP-1 £1,200/pt/yr, cessation £300/quitter)
+- **Annual cost** — drug tariff / programme cost per patient
 - **Admissions avoided per year** — trial effect sizes × uptake × adherence
-- **Estimated savings** — avoided admissions × NHS reference costs (MI £5,500, stroke £7,000, HF £3,400, DM complication £2,800, COPD £3,200)
+- **Estimated savings** — avoided admissions × NHS reference costs
 - **Net position** — green if cost-saving, red if net cost, with ROI %
+
+### Reference costs used
+
+| Item | Cost |
+|---|---|
+| Polypill | £165/pt/yr |
+| SGLT2i (intensive DM) | £450/pt/yr |
+| GLP-1 (intensive DM) | £1,200/pt/yr |
+| Smoking cessation | £300/quitter |
+| Proactive care programme | £500/pt/yr |
+| MI admission | £5,500 |
+| Stroke admission | £7,000 |
+| Heart failure admission | £3,400 |
+| DM complication | £2,800 |
+| COPD admission | £3,200 |
+| Blended frailty admission | £3,800 |
 
 Six summary KPI tiles show total patients treated, total annual cost, total estimated savings, net position, admissions avoided per year, and cost per admission avoided.
 
-All figures update in real time as you adjust uptake and adherence sliders. The key commissioning insight: *programme uptake matters as much as the drug itself.*
+All figures update in real time as you adjust uptake and adherence sliders.
 
 > ⚠️ Indicative estimates only. NHS National Schedule of NHS Costs 2023/24 and BNF/Drug Tariff 2024. Not for commissioning decisions without validated health economic modelling.
 
@@ -64,7 +110,7 @@ All figures update in real time as you adjust uptake and adherence sliders. The 
 
 ## Scenario comparison
 
-**📸 Save Mortality Curve** captures the current cumulative death trajectory at any point. Multiple saved scenarios overlay on the mortality chart as dashed coloured lines, allowing direct visual comparison — e.g. baseline vs polypill vs polypill + intensive DM.
+**📸 Save Mortality Curve** captures the current cumulative death trajectory at any point. Multiple saved scenarios overlay on the mortality chart as dashed coloured lines, allowing direct visual comparison — e.g. baseline vs polypill vs polypill + intensive DM vs proactive care.
 
 ---
 
@@ -88,7 +134,7 @@ Changes take effect on **🔄 Rebuild Population**.
 
 At any simulation timepoint, export the full dataset:
 
-- **📥 Export All CSV** — all 10,000 patients with 36 variables: demographics, conditions, medications, vitals, QRISK, survival status, death month/year, active interventions
+- **📥 Export All CSV** — all 10,000 patients with 39 variables: demographics, conditions, medications, vitals, QRISK, frailty score, frailty band, proactive caseload status, survival status, death month/year, active interventions
 - **💀 Deaths Only** — filtered to deceased patients for mortality risk factor analysis
 
 Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-intensiveDM.csv`
@@ -113,6 +159,8 @@ Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-int
 | Ethnicity risk | Bhopal et al. (CVD); Bradford/Leicester cohort (T2DM); UK Biobank (HTN) |
 | NICE guidelines | NG136 (HTN), NG28 (T2DM), NG196 (AF), NG106 (HF), NG115 (COPD) |
 | Intervention effects | TIPS, PolyIran, DAPA-HF, EMPEROR-Reduced, EMPA-REG, Doll & Hill, REACT-2 |
+| Frailty modelling | PRISMA trial; NHS England GRACE programme; Marmot Review |
+| Frailty index | NHS Electronic Frailty Index (eFI) — simplified implementation |
 | Admission costs | NHS National Schedule of NHS Costs 2023/24 |
 | Drug costs | BNF / NHS Drug Tariff 2024 |
 
@@ -122,20 +170,23 @@ Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-int
 
 - Synthetic patients only — not derived from real individual records
 - Simplified QRISK scoring (not the validated QRISK3 algorithm)
+- Simplified eFI — not the validated 36-deficit Electronic Frailty Index
 - No socioeconomic gradient modelled *within* ethnic groups
 - Drug side-effects, discontinuation, and polypharmacy burden not modelled
 - Multi-morbidity interaction effects are simplified
 - Admission cost estimates are indicative; true NHS costs vary by complexity and setting
+- Frailty intervention effects are modelled at population level — individual trajectories are not tracked
 - **Not validated for clinical decision-making, service planning, or commissioning**
 
 ---
 
 ## Technical notes
 
-- Single HTML file (~90 KB) — no server, no framework, no dependencies except Chart.js CDN
+- Single HTML file (~95 KB) — no server, no framework, no dependencies except Chart.js CDN
 - Mulberry32 seeded pseudo-random number generator — any run is exactly reproducible
 - Monte Carlo engine runs 20 × 60-month full simulations asynchronously in the browser
 - Chart.js 4.4.1 — population pyramid, mortality curves with shaded confidence bands, prevalence trends
+- eFI recalculated dynamically each tick from current patient state
 - Runs entirely client-side; no patient data is transmitted anywhere
 
 ---

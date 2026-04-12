@@ -841,6 +841,51 @@ function makePatient(ageOverride, cfg) {
 }
 
 // ╔══════════════════════════════════════════════════════╗
+// ║  FRAILTY SCORING (simplified eFI)                    ║
+// ╚══════════════════════════════════════════════════════╝
+function calcFrailty(p) {
+  let s = 0;
+  // Age component
+  if(p.age >= 85)      s += 3;
+  else if(p.age >= 75) s += 2;
+  else if(p.age >= 65) s += 1;
+  // High-impact conditions (+2)
+  if(p.cond.has('HF'))        s += 2;
+  if(p.cond.has('Dementia'))  s += 2;
+  if(p.cond.has('Stroke'))    s += 2;
+  if(p.cond.has('COPD'))      s += 2;
+  // Medium-impact conditions (+1)
+  if(p.cond.has('T2DM'))      s += 1;
+  if(p.cond.has('CKD'))       s += 1;
+  if(p.cond.has('AF'))        s += 1;
+  if(p.cond.has('CAD'))       s += 1;
+  if(p.cond.has('Cancer'))    s += 1;
+  // Lower-impact conditions (+0.5)
+  if(p.cond.has('HTN'))              s += 0.5;
+  if(p.cond.has('Depression'))       s += 0.5;
+  if(p.cond.has('Osteoporosis'))     s += 0.5;
+  if(p.cond.has('Hypothyroidism'))   s += 0.5;
+  if(p.cond.has('Asthma'))           s += 0.5;
+  if(p.cond.has('Long COVID'))       s += 0.5;
+  // Risk factor additions
+  if(p.bmi >= 35)      s += 0.5;
+  if(p.smoker)         s += 0.5;
+  if(p.depScore >= 4)  s += 0.5;
+  return Math.min(15, Math.round(s * 10) / 10);
+}
+function frailtyBand(score) {
+  if(score <= 4)  return 'Fit';
+  if(score <= 8)  return 'Mild';
+  if(score <= 12) return 'Moderate';
+  return 'Severe';
+}
+// Patient qualifies for proactive caseload if moderate/severe frailty
+const PROACTIVE_THRESHOLD = 9;
+function onCaseload(p) {
+  return SIM.int.proactive && calcFrailty(p) >= PROACTIVE_THRESHOLD;
+}
+
+// ╔══════════════════════════════════════════════════════╗
 // ║  ONS MORTALITY TABLE (annual rates)                  ║
 // ╚══════════════════════════════════════════════════════╝
 const MORT_TBL=[
@@ -870,6 +915,8 @@ function annualMort(p) {
   { const e=eff('smokingCess'); if(e>0 && p.exSmoker)                                r*=(1-0.05*e); }
   { const e=eff('polypill');    if(e>0 && p.qrisk>10 && hasC(p.meds,'STAT'))         r*=(1-0.10*e); }
   { const e=eff('nice');        if(e>0 && hasC(p.meds,'STAT') && p.qrisk>10)         r*=(1-0.08*e); }
+  // Proactive care: 20% mortality reduction for caseloaded patients (NHS Virtual Ward evidence)
+  { const e=eff('proactive');   if(e>0 && onCaseload(p))                             r*=(1-0.20*e); }
 
   // COVID spike
   if(SIM.covidLeft>0) {
@@ -897,6 +944,8 @@ function incProbs(p) {
   { const e=eff('polypill'); if(e>0 && p.qrisk>10 && hasC(p.meds,'STAT')) { miMult*=(1-0.25*e); strMult*=(1-0.20*e); } }
   { const e=eff('nice');     if(e>0 && hasC(p.meds,'STAT') && p.qrisk>10) { miMult*=(1-0.12*e); strMult*=(1-0.12*e); } }
   { const e=eff('intensiveDM'); if(e>0 && p.cond.has('T2DM'))             { miMult*=(1-0.35*e); strMult*=(1-0.35*e); } }
+  // Proactive care: earlier detection reduces MI/stroke/HF events ~15% in caseloaded patients
+  { const e=eff('proactive'); if(e>0 && onCaseload(p)) { miMult*=(1-0.15*e); strMult*=(1-0.15*e); } }
 
   return {
     newHTN: p.cond.has('HTN') ? 0 :
@@ -912,7 +961,8 @@ function incProbs(p) {
 
     newHF: p.cond.has('HF') ? 0 :
       Math.max(0,0.003*Math.pow(Math.max(0,a-50)/20,2.0)*(p.cond.has('CAD')?2.2:1)
-                *(p.cond.has('T2DM')?(1-0.50*eff('intensiveDM')):1)),
+                *(p.cond.has('T2DM')?(1-0.50*eff('intensiveDM')):1)
+                *(onCaseload(p)?(1-0.15*eff('proactive')):1)),
 
     newDep: p.cond.has('Depression') ? 0 :
       0.022*(dep?1.6:1)*(a<15?0.2:1),
@@ -948,7 +998,7 @@ const SIM = {
   mcBands:[], // [{m, lo, med, hi}] — Monte Carlo percentile bands
   covidLeft:0,
   autoTimer:null,
-  int:{ polypill:false, intensiveDM:false, smokingCess:false, cancer:false, covid:false, deprivation:false, nice:false },
+  int:{ polypill:false, intensiveDM:false, smokingCess:false, cancer:false, covid:false, deprivation:false, nice:false, proactive:false },
   // Uptake = % of eligible patients who receive the intervention
   // Adherence = % who maintain it (scales effect size)
   adh:{
@@ -956,6 +1006,7 @@ const SIM = {
     intensiveDM: {uptake:70, adherence:80},
     smokingCess: {uptake:60, adherence:70},
     nice:        {uptake:85, adherence:90},
+    proactive:   {uptake:75, adherence:80},
   },
   trend:{ months:[], data:{} },
   cfg:{ sa:40, blk:20, wht:35, oth:5, pakiPct:30, dep:3, smk:13, bmiOff:0 },
@@ -1173,10 +1224,13 @@ const INT_DEFS=[
    col:'#744210',bg:'#fffbeb'},
   {key:'nice',        icon:'✅', name:'Perfect NICE Adherence',
    desc:'All undertreated patients immediately optimised. Applies on every tick.',
-   col:'#553c9a',bg:'#f3e8ff'}
+   col:'#553c9a',bg:'#f3e8ff'},
+  {key:'proactive',   icon:'🏥', name:'Proactive Care / Frailty Caseload',
+   desc:'Risk-stratified case management for moderate/severe frailty (eFI ≥9). GP, pharmacist & care coordinator. Reduces mortality ~20%, emergency admissions ~20%. Based on NHS Virtual Ward and eFI evidence.',
+   col:'#2c7a7b',bg:'#e6fffa'}
 ];
 
-const ADH_KEYS = new Set(['polypill','intensiveDM','smokingCess','nice']);
+const ADH_KEYS = new Set(['polypill','intensiveDM','smokingCess','nice','proactive']);
 
 function adhSliders(key, col) {
   if(!ADH_KEYS.has(key)) return '';
@@ -1709,7 +1763,7 @@ function resetSim(){
   SIM.month=0; SIM.deathsYear=0; SIM.yearBound=0; SIM.cumDeaths=0;
   SIM.mortalityCurve=[]; SIM.trend={months:[],data:{}}; SIM.mcBands=[];
   SIM.covidLeft=0;
-  SIM.int={polypill:false,intensiveDM:false,smokingCess:false,cancer:false,covid:false,deprivation:false,nice:false};
+  SIM.int={polypill:false,intensiveDM:false,smokingCess:false,cancer:false,covid:false,deprivation:false,nice:false,proactive:false};
   SIM.tablePage=0;
   document.getElementById('tbl-running-notice').style.display='none';
 
@@ -1840,6 +1894,24 @@ function refreshCosts(){
     totalCost+=costPA; totalSave+=savePA; totalAdm+=admAvoid; totalTreated+=treated;
   }
 
+  // ── Proactive Care / Frailty Caseload ────────────────────────────────
+  if(SIM.int.proactive){
+    const eligible  = alive.filter(p=>calcFrailty(p)>=PROACTIVE_THRESHOLD).length;
+    const treated   = Math.round(eligible * SIM.adh.proactive.uptake/100);
+    const e         = eff('proactive');
+    // GP structured review £120 + pharmacist £80 + care coordinator £180 + community frailty £120 = £500/pt/yr
+    const costPA    = treated * 500;
+    // ~20% of caseloaded pts avoid an unplanned admission (blended HF + fall + AKI + COPD exac)
+    const admAvoid  = treated * 0.20 * e;
+    const savePA    = admAvoid * 3800; // blended emergency admission cost
+    // Additional: reduced 999 calls, reduced care home placement delay
+    const extraSave = treated * 0.05 * e * 2200; // 5% avoid care home escalation (£2200 saving)
+    const totalSaveRow = savePA + extraSave;
+    rows.push({ name:'🏥 Proactive Care', treated, eligible, costPA, admAvoid, savePA:totalSaveRow,
+                basis:`${eligible.toLocaleString()} pts with frailty score ≥${PROACTIVE_THRESHOLD} (moderate/severe eFI); GP + pharmacist + care coordinator` });
+    totalCost+=costPA; totalSave+=totalSaveRow; totalAdm+=admAvoid; totalTreated+=treated;
+  }
+
   // ── Render table ──────────────────────────────────────────────────────
   const td = (txt, cls='') =>
     `<td style="padding:6px 10px;border-bottom:1px solid #f7fafc;text-align:right${cls?';'+cls:''}">${txt}</td>`;
@@ -1914,6 +1986,7 @@ function downloadCSV(deathsOnly) {
     'patient_idx','nhs_number','first_name','last_name',
     'age_at_baseline','sex','ethnicity','is_pakistani',
     'smoking','ex_smoking','deprivation','bmi','sbp','cholesterol','qrisk',
+    'frailty_score','frailty_band','on_proactive_caseload',
     'medications_count','alive','months_simulated','death_month','death_year',
     // Condition flags (1/0)
     'hypertension','diabetes','cad','heart_failure','af','ckd','copd',
@@ -1957,6 +2030,9 @@ function downloadCSV(deathsOnly) {
       p.sbp,
       p.chol,
       p.qrisk,
+      calcFrailty(p),
+      `"${frailtyBand(calcFrailty(p))}"`,
+      onCaseload(p) ? 1 : 0,
       p.meds.size,
       p.alive ? 1 : 0,
       monthsLived,
