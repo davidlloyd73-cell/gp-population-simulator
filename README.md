@@ -64,6 +64,20 @@ The **frailty_score**, **frailty_band**, and **on_proactive_caseload** columns a
 
 ---
 
+## Health Inequality Gap chart
+
+A dedicated chart — inspired by the Marmot Review — shows two cumulative mortality lines side by side:
+
+- 🔴 **Most deprived quintile** (individual deprivation score 4–5)
+- 🔵 **Least deprived quintile** (individual deprivation score 1–2)
+- The **shaded red area** between them is the inequality gap, labelled in real time (e.g. *"gap: 18.4 per 1,000"*)
+
+Each patient is assigned an **individual deprivation score** drawn from a normal distribution around the practice mean (std dev 1.2), so roughly 26% of the population falls into each extreme quintile — enough for statistically stable tracking.
+
+**The teaching moment:** turn on the Deprivation Shock intervention and watch the gap widen visibly. Turn on the Polypill or Proactive Care and watch it narrow. Reduce uptake to 30% and the narrowing almost disappears — because low uptake in deprived populations is precisely how health inequalities persist. This is the Marmot lesson made visible.
+
+---
+
 ## Monte Carlo confidence funnel
 
 Click **🎲 Monte Carlo (×20)** to run 20 full simulations with different random seeds. The mortality chart gains a **shaded green band** showing the 10th–90th percentile range of outcomes across all runs, with a dashed median line.
@@ -146,6 +160,7 @@ Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-int
 - **Population pyramid** — live age/sex distribution, updates each month
 - **Cumulative mortality curve** — scenario overlay + Monte Carlo confidence band
 - **Condition prevalence trends** — 15 conditions tracked over simulated time
+- **Health Inequality Gap** — most vs least deprived quintile mortality, with shaded gap and live gap annotation
 
 ---
 
@@ -161,6 +176,7 @@ Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-int
 | Intervention effects | TIPS, PolyIran, DAPA-HF, EMPEROR-Reduced, EMPA-REG, Doll & Hill, REACT-2 |
 | Frailty modelling | PRISMA trial; NHS England GRACE programme; Marmot Review |
 | Frailty index | NHS Electronic Frailty Index (eFI) — simplified implementation |
+| Health inequality | Marmot Review 2010; PHE Health Equity reports; individual deprivation score distribution |
 | Admission costs | NHS National Schedule of NHS Costs 2023/24 |
 | Drug costs | BNF / NHS Drug Tariff 2024 |
 
@@ -171,6 +187,7 @@ Filenames are automatically descriptive: `harrow-gp-sim_deaths_mo36_polypill-int
 - Synthetic patients only — not derived from real individual records
 - Simplified QRISK scoring (not the validated QRISK3 algorithm)
 - Simplified eFI — not the validated 36-deficit Electronic Frailty Index
+- Individual deprivation scores are distributed around the practice mean — not derived from real geo-coded data
 - No socioeconomic gradient modelled *within* ethnic groups
 - Drug side-effects, discontinuation, and polypharmacy burden not modelled
 - Multi-morbidity interaction effects are simplified
@@ -209,4 +226,8 @@ Developed with **[Claude AI](https://claude.ai)** (Anthropic). Built in a week. 
 
 ## Licence
 
-Open source — freely shareable and adaptable. If you build on this, please retain the methodology note and limitations section. Feedback and pull requests welcome.
+Open source — freely shareable and adaptable. If you build on this, please retain the methodology note and limitations section.
+
+**[📝 Share feedback or tell us how you used this tool →](https://github.com/davidlloyd73-cell/gp-population-simulator/issues/new?title=Feedback&body=How+did+you+use+this+simulator%3F+What+worked+well%3F+What+would+you+change%3F)**
+
+Feedback and pull requests welcome.
